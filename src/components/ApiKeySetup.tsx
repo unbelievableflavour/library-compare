@@ -4,13 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Eye, EyeOff, ExternalLink, Key, Trash2 } from 'lucide-react';
-import { getApiKeysCookie, setApiKeysCookie, clearApiKeysCookie } from '@/lib/cookies';
+import { getApiKeysCookie, setApiKeysCookie, clearApiKeysCookie, XboxTokens } from '@/lib/cookies';
+import { XboxAPI } from '@/lib/api/xbox';
 
 interface ApiKeys {
   steamApiKey: string;
   steamId: string;
-  xboxApiKey: string;
-  xboxGamertag: string;
+  xboxTokens?: XboxTokens;
 }
 
 interface ApiKeySetupProps {
@@ -22,9 +22,9 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
   const [apiKeys, setApiKeys] = useState<ApiKeys>({
     steamApiKey: '',
     steamId: '',
-    xboxApiKey: '',
-    xboxGamertag: '',
+    xboxTokens: undefined,
   });
+  const [xboxAuthenticating, setXboxAuthenticating] = useState(false);
   const [showKeys, setShowKeys] = useState({
     steam: false,
     xbox: false,
@@ -33,20 +33,18 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
   const [validationErrors, setValidationErrors] = useState<{
     steamApiKey?: string;
     steamId?: string;
-    xboxApiKey?: string;
-    xboxGamertag?: string;
+    xbox?: string;
   }>({});
 
   // Load stored API keys on component mount
   useEffect(() => {
     const storedKeys = getApiKeysCookie();
-    if (storedKeys.steamApiKey || storedKeys.xboxApiKey) {
+    if (storedKeys.steamApiKey || storedKeys.xboxTokens) {
       setApiKeys(prev => ({
         ...prev,
         steamApiKey: storedKeys.steamApiKey || '',
         steamId: storedKeys.steamId || '',
-        xboxApiKey: storedKeys.xboxApiKey || '',
-        xboxGamertag: storedKeys.xboxGamertag || '',
+        xboxTokens: storedKeys.xboxTokens,
       }));
       setHasStoredKeys(true);
     }
@@ -78,16 +76,9 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
       errors.steamApiKey = 'Steam API key is required when Steam ID is provided';
     }
     
-    // Xbox validation
-    if (apiKeys.xboxApiKey && !apiKeys.xboxGamertag) {
-      errors.xboxGamertag = 'Xbox Gamertag is required when Xbox API key is provided';
-    } else if (!apiKeys.xboxApiKey && apiKeys.xboxGamertag) {
-      errors.xboxApiKey = 'Xbox API key is required when Xbox Gamertag is provided';
-    }
-    
     // Check if at least one platform is configured
     const hasSteam = apiKeys.steamApiKey && apiKeys.steamId;
-    const hasXbox = apiKeys.xboxApiKey && apiKeys.xboxGamertag;
+    const hasXbox = apiKeys.xboxTokens;
     
     if (!hasSteam && !hasXbox) {
       errors.steamApiKey = 'Please configure at least one platform (Steam or Xbox)';
@@ -105,7 +96,7 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
     }
     
     // Save API keys to cookies (excluding demo values)
-    if (apiKeys.steamApiKey !== 'demo' || apiKeys.xboxApiKey !== 'demo') {
+    if (apiKeys.steamApiKey !== 'demo' || apiKeys.xboxTokens) {
       setApiKeysCookie(apiKeys);
     }
     
@@ -117,16 +108,150 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
     setApiKeys({
       steamApiKey: '',
       steamId: '',
-      xboxApiKey: '',
-      xboxGamertag: '',
+      xboxTokens: undefined,
     });
     setHasStoredKeys(false);
   };
 
+  const handleXboxOAuth = async () => {
+    setXboxAuthenticating(true);
+    setValidationErrors(prev => ({ ...prev, xbox: undefined }));
+    
+    try {
+      const result = await XboxAPI.startOAuthFlow();
+      
+      if (result.error === 'Xbox Live Setup Required') {
+        // Show setup instructions
+        let alertMessage = `${(result as any).message}\n\nSetup Steps:\n`;
+        (result as any).setup.steps.forEach((step: string, i: number) => {
+          alertMessage += `\n${i + 1}. ${step}`;
+        });
+        alertMessage += `\n\nRedirect URI: ${(result as any).setup.redirectUri}`;
+        alertMessage += `\nEnvironment Variable: ${(result as any).setup.envVariable}`;
+        alertMessage += `\n\nBenefits:\n`;
+        (result as any).benefits.forEach((benefit: string) => {
+          alertMessage += `\n• ${benefit}`;
+        });
+        
+        alert(alertMessage);
+        
+        setValidationErrors(prev => ({ 
+          ...prev, 
+          xbox: 'Xbox Live setup required. Please register a Microsoft Azure app first.'
+        }));
+      } else if (result.authUrl) {
+        // Open OAuth URL in popup window
+        const popup = window.open(
+          result.authUrl, 
+          'xbox-oauth', 
+          'width=500,height=600,scrollbars=yes,resizable=yes'
+        );
+        
+        // Listen for OAuth completion
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data?.type === 'XBOX_AUTH_SUCCESS') {
+            window.removeEventListener('message', handleMessage);
+            popup?.close();
+            
+            // Store tokens and update UI
+            const newApiKeys = { ...apiKeys, xboxTokens: event.data.tokens };
+            setApiKeys(newApiKeys);
+            
+            // Save to cookies immediately
+            setApiKeysCookie(newApiKeys);
+            setXboxAuthenticating(false);
+          }
+        };
+        
+        window.addEventListener('message', handleMessage);
+        
+        // Check if popup was blocked or closed manually
+        const checkClosed = setInterval(() => {
+          if (popup?.closed) {
+            clearInterval(checkClosed);
+            window.removeEventListener('message', handleMessage);
+            setXboxAuthenticating(false);
+          }
+        }, 1000);
+        
+      } else {
+        throw new Error(result.error || 'Failed to start OAuth flow');
+      }
+      
+    } catch (error) {
+      console.error('Xbox OAuth error:', error);
+      setValidationErrors(prev => ({ 
+        ...prev, 
+        xbox: error instanceof Error ? error.message : 'Failed to start Xbox authentication'
+      }));
+      setXboxAuthenticating(false);
+    }
+  };
+
+  // Check for OAuth callback on component mount
+  useEffect(() => {
+    const handleOAuthCallback = async () => {
+      // Check URL search params for OAuth callback
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      
+      if (code) {
+        setXboxAuthenticating(true);
+        try {
+          const tokens = await XboxAPI.handleOAuthCallback(code);
+          const newApiKeys = { ...apiKeys, xboxTokens: tokens };
+          setApiKeys(newApiKeys);
+          
+          // Save to cookies immediately
+          setApiKeysCookie(newApiKeys);
+          
+          // Clear the OAuth parameters from URL
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('code');
+          newUrl.searchParams.delete('state');
+          window.history.replaceState({}, '', newUrl.toString());
+          
+        } catch (error) {
+          console.error('OAuth callback error:', error);
+          setValidationErrors(prev => ({ 
+            ...prev, 
+            xbox: error instanceof Error ? error.message : 'OAuth authentication failed'
+          }));
+        } finally {
+          setXboxAuthenticating(false);
+        }
+      }
+      
+      // Check URL fragment for tokens (alternative callback method)
+      const fragment = window.location.hash;
+      if (fragment.includes('xbox-auth-success=')) {
+        try {
+          const tokenMatch = fragment.match(/xbox-auth-success=([^&]+)/);
+          if (tokenMatch) {
+            const tokensString = decodeURIComponent(tokenMatch[1]);
+            const tokens = JSON.parse(tokensString);
+            const newApiKeys = { ...apiKeys, xboxTokens: tokens };
+            setApiKeys(newApiKeys);
+            
+            // Save to cookies immediately
+            setApiKeysCookie(newApiKeys);
+            
+            // Clear the fragment
+            window.location.hash = '';
+          }
+        } catch (error) {
+          console.error('Failed to parse OAuth tokens from URL fragment:', error);
+        }
+      }
+    };
+
+    handleOAuthCallback();
+  }, []);
+
   const handleInputChange = (field: keyof ApiKeys, value: string) => {
     setApiKeys(prev => ({ ...prev, [field]: value }));
     // Clear validation error for this field when user starts typing
-    if (validationErrors[field]) {
+    if (field !== 'xboxTokens' && validationErrors[field as keyof typeof validationErrors]) {
       setValidationErrors(prev => ({ ...prev, [field]: undefined }));
     }
   };
@@ -232,71 +357,79 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
         <div className="space-y-4 p-4 border rounded-lg">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-green-500 rounded"></div>
-            <h3 className="text-lg font-semibold">Xbox</h3>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open('https://xbl.io/', '_blank')}
-            >
-              <ExternalLink className="h-4 w-4" />
-              Get API Key
-            </Button>
+            <h3 className="text-lg font-semibold">Xbox Live</h3>
+            {apiKeys.xboxTokens && (
+              <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Connected</span>
+            )}
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Xbox API Key (xbl.io)</label>
-              <div className="relative">
-                <Input
-                  type={showKeys.xbox ? 'text' : 'password'}
-                  placeholder="Enter your xbl.io API key"
-                  value={apiKeys.xboxApiKey}
-                  onChange={(e) => handleInputChange('xboxApiKey', e.target.value)}
-                  className={validationErrors.xboxApiKey ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}
-                />
+          {!apiKeys.xboxTokens ? (
+            <div className="space-y-4">
+              <div className="flex gap-2">
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowKeys(prev => ({ ...prev, xbox: !prev.xbox }))}
+                  onClick={handleXboxOAuth}
+                  disabled={xboxAuthenticating}
+                  className="flex-1"
                 >
-                  {showKeys.xbox ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {xboxAuthenticating ? 'Authenticating...' : 'Sign in with Xbox Live'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => window.open('https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade', '_blank')}
+                  title="Create Azure App Registration"
+                >
+                  <ExternalLink className="h-4 w-4" />
                 </Button>
               </div>
-              {validationErrors.xboxApiKey && (
-                <p className="text-red-500 text-xs">{validationErrors.xboxApiKey}</p>
+              
+              {validationErrors.xbox && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-yellow-800 text-xs font-medium mb-1">Setup Required:</p>
+                  <p className="text-yellow-700 text-xs">{validationErrors.xbox}</p>
+                </div>
               )}
+              
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p className="font-medium">✨ Professional OAuth Authentication:</p>
+                <p>• Secure Microsoft OAuth 2.0 flow</p>
+                <p>• Works with 2FA-enabled accounts</p>
+                <p>• Your credentials never touch our servers</p>
+                <p>• Revoke access anytime from Microsoft account settings</p>
+                <p>• Production-ready authentication system</p>
+              </div>
+              
+              <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                <p className="font-medium">⚙️ One-time Azure setup required:</p>
+                <p>1. Click the <ExternalLink className="h-3 w-3 inline mx-1" /> button above to open Azure Portal</p>
+                <p>2. Create new app registration with your domain as redirect URI</p>
+                <p>3. Copy the Application (client) ID to XBOX_CLIENT_ID environment variable</p>
+                <p>4. Restart your development server</p>
+                <p className="mt-2 font-medium">📋 Your redirect URI: <span className="bg-gray-100 px-1 rounded text-gray-800">{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/xbox/callback</span></p>
+              </div>
             </div>
-            
+          ) : (
             <div className="space-y-2">
-              <label className="text-sm font-medium">Xbox Gamertag</label>
-              <Input
-                type="text"
-                placeholder="Your Xbox Gamertag"
-                value={apiKeys.xboxGamertag}
-                onChange={(e) => handleInputChange('xboxGamertag', e.target.value)}
-                className={validationErrors.xboxGamertag ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}
-              />
-              {validationErrors.xboxGamertag && (
-                <p className="text-red-500 text-xs">{validationErrors.xboxGamertag}</p>
-              )}
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-green-600">✓ Xbox Live account connected</p>
+                {apiKeys.xboxTokens.gamertag && (
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                    {apiKeys.xboxTokens.gamertag}
+                  </span>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setApiKeys(prev => ({ ...prev, xboxTokens: undefined }))}
+              >
+                Disconnect Xbox Account
+              </Button>
             </div>
-          </div>
-          
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>• Get a free API key from xbl.io (limited requests)</p>
-            <p>• Enter your exact Xbox Gamertag</p>
-            <p><strong>• Xbox profile must be public:</strong></p>
-            <div className="ml-4 space-y-1 text-xs">
-              <p>1. Go to <a href="https://account.xbox.com/en-us/Settings" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">account.xbox.com/Settings</a></p>
-              <p>2. Select "Xbox privacy" → "View details & customize"</p>
-              <p>3. Set "Others can see your game and app history" → <strong>Everyone</strong></p>
-              <p>4. Set "Others can see if you're online" → <strong>Everyone</strong></p>
-              <p>5. Changes take 5-15 minutes to take effect</p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* GOG Section (Note about limitations) */}
@@ -335,7 +468,7 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
           <Button 
             type="submit" 
             className="w-full" 
-            disabled={loading || (!apiKeys.steamApiKey && !apiKeys.xboxApiKey)}
+            disabled={loading || (!apiKeys.steamApiKey && !apiKeys.xboxTokens)}
           >
             {loading ? (
               <>
@@ -353,7 +486,7 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
               type="button"
               variant="outline"
               className="w-full border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700"
-              onClick={() => onSubmit({ steamApiKey: 'demo', steamId: 'demo', xboxApiKey: 'demo', xboxGamertag: 'demo' })}
+              onClick={() => onSubmit({ steamApiKey: 'demo', steamId: 'demo', xboxTokens: undefined })}
               disabled={loading}
             >
               🎮 Try Demo with Sample Data

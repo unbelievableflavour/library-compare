@@ -8,7 +8,7 @@ import { Game, GameLibrary } from '@/types/game';
 import { mockGameLibrary } from '@/lib/mockData';
 import { Gamepad2, BarChart3, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getApiKeysCookie, hasStoredApiKeys } from '@/lib/cookies';
+import { getApiKeysCookie, hasStoredApiKeys, setApiKeysCookie } from '@/lib/cookies';
 
 export default function Home() {
   const [gameLibrary, setGameLibrary] = useState<GameLibrary | null>(null);
@@ -24,15 +24,14 @@ export default function Home() {
         const storedKeys = getApiKeysCookie();
         
         // Auto-load libraries if we have valid stored credentials
-        if ((storedKeys.steamApiKey && storedKeys.steamId) || (storedKeys.xboxApiKey && storedKeys.xboxGamertag)) {
+        if ((storedKeys.steamApiKey && storedKeys.steamId) || storedKeys.xboxTokens) {
           setAutoLoadingMessage('Loading your game libraries from saved credentials...');
           setLoading(true);
           
           await handleApiKeySubmit({
             steamApiKey: storedKeys.steamApiKey || '',
             steamId: storedKeys.steamId || '',
-            xboxApiKey: storedKeys.xboxApiKey || '',
-            xboxGamertag: storedKeys.xboxGamertag || '',
+            xboxTokens: storedKeys.xboxTokens,
           });
           
           setAutoLoadingMessage(null);
@@ -52,8 +51,7 @@ export default function Home() {
   const handleApiKeySubmit = async (apiKeys: {
     steamApiKey: string;
     steamId: string;
-    xboxApiKey: string;
-    xboxGamertag: string;
+    xboxTokens?: any;
   }) => {
     setLoading(true);
     setError(null);
@@ -82,12 +80,20 @@ export default function Home() {
 
       const libraryManager = new GameLibraryManager({
         steamApiKey: apiKeys.steamApiKey || undefined,
-        xboxApiKey: apiKeys.xboxApiKey || undefined,
+        xboxTokens: apiKeys.xboxTokens || undefined,
+        onTokensUpdated: (updatedTokens) => {
+          // Save updated tokens to cookies when they're refreshed
+          console.log('Saving refreshed Xbox tokens to cookies');
+          const currentKeys = getApiKeysCookie();
+          setApiKeysCookie({
+            ...currentKeys,
+            xboxTokens: updatedTokens
+          });
+        }
       });
 
       const library = await libraryManager.fetchAllLibraries({
         steamId: apiKeys.steamId || undefined,
-        xboxGamertag: apiKeys.xboxGamertag || undefined,
       });
 
       setGameLibrary(library);

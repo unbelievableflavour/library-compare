@@ -1,32 +1,34 @@
 import { Game, GameLibrary, Platform } from '@/types/game';
 import { steamAPI } from './api/steam';
-import { xboxAPI } from './api/xbox';
+import { xboxAPI, XboxTokens } from './api/xbox';
 import { gogAPI } from './api/gog';
 
 export class GameLibraryManager {
   private steam?: ReturnType<typeof steamAPI>;
   private xbox?: ReturnType<typeof xboxAPI>;
   private gog?: ReturnType<typeof gogAPI>;
+  private onTokensUpdated?: (tokens: XboxTokens) => void;
 
   constructor(config: {
     steamApiKey?: string;
-    xboxApiKey?: string;
+    xboxTokens?: XboxTokens;
     gogApiKey?: string;
+    onTokensUpdated?: (tokens: XboxTokens) => void;
   }) {
     if (config.steamApiKey) {
       this.steam = steamAPI(config.steamApiKey);
     }
-    if (config.xboxApiKey) {
-      this.xbox = xboxAPI(config.xboxApiKey);
+    if (config.xboxTokens) {
+      this.xbox = xboxAPI(config.xboxTokens);
     }
     if (config.gogApiKey) {
       this.gog = gogAPI(config.gogApiKey);
     }
+    this.onTokensUpdated = config.onTokensUpdated;
   }
 
   async fetchAllLibraries(userIds: {
     steamId?: string;
-    xboxGamertag?: string;
   }): Promise<GameLibrary> {
     const [steamGames, xboxGames, gogGames] = await Promise.allSettled([
       this.steam && userIds.steamId ? this.steam.getOwnedGames(userIds.steamId) : Promise.resolve([]),
@@ -52,7 +54,15 @@ export class GameLibraryManager {
     if (!this.xbox) return [];
     
     try {
-      return await this.xbox.getOwnedGames();
+      const games = await this.xbox.getOwnedGames();
+      
+      // Check if tokens were refreshed and notify the callback
+      if (this.onTokensUpdated) {
+        const currentTokens = this.xbox.getTokens();
+        this.onTokensUpdated(currentTokens);
+      }
+      
+      return games;
     } catch (error) {
       console.error('Error fetching Xbox games:', error);
       return [];

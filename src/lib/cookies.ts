@@ -1,8 +1,18 @@
+interface XboxTokens {
+  userToken: string;
+  xstsToken: string;
+  uhs: string;
+  xuid?: string;
+  gamertag?: string;
+  refreshToken?: string;
+  expiresOn?: string;
+  accessToken?: string;
+}
+
 interface ApiKeysData {
   steamApiKey?: string;
   steamId?: string;
-  xboxApiKey?: string;
-  xboxGamertag?: string;
+  xboxTokens?: XboxTokens;
 }
 
 const COOKIE_NAME = 'library-compare-api-keys';
@@ -30,9 +40,9 @@ export function setApiKeysCookie(apiKeys: ApiKeysData): void {
   if (typeof window === 'undefined') return;
   
   try {
-    // Set cookie to expire in 30 days
+    // Set cookie to expire in 90 days for longer Xbox session persistence
     const expires = new Date();
-    expires.setDate(expires.getDate() + 30);
+    expires.setDate(expires.getDate() + 90);
     
     const cookieValue = encodeURIComponent(JSON.stringify(apiKeys));
     document.cookie = `${COOKIE_NAME}=${cookieValue}; expires=${expires.toUTCString()}; path=/; SameSite=Strict`;
@@ -49,5 +59,7 @@ export function clearApiKeysCookie(): void {
 
 export function hasStoredApiKeys(): boolean {
   const apiKeys = getApiKeysCookie();
-  return !!(apiKeys.steamApiKey || apiKeys.xboxApiKey);
+  return !!(apiKeys.steamApiKey || apiKeys.xboxTokens);
 }
+
+export type { XboxTokens };
