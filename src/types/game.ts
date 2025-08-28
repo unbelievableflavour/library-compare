@@ -1,0 +1,79 @@
+export interface Game {
+  id: string;
+  name: string;
+  platforms: Platform[];
+  appId?: {
+    steam?: string;
+    xbox?: string;
+    gog?: string;
+  };
+  images?: {
+    header?: string;
+    icon?: string;
+    background?: string;
+  };
+  releaseDate?: string;
+  genres?: string[];
+  playtime?: {
+    steam?: number; // minutes
+    xbox?: number;
+  };
+  achievements?: {
+    steam?: { total: number; unlocked: number };
+    xbox?: { total: number; unlocked: number };
+  };
+}
+
+export interface Platform {
+  name: 'Steam' | 'Xbox' | 'GOG';
+  owned: boolean;
+  installed?: boolean;
+  lastPlayed?: string;
+  playtime?: number; // minutes
+}
+
+export interface SteamGame {
+  appid: number;
+  name: string;
+  playtime_forever: number;
+  img_icon_url?: string;
+  img_logo_url?: string;
+  playtime_windows_forever?: number;
+  playtime_mac_forever?: number;
+  playtime_linux_forever?: number;
+  rtime_last_played?: number;
+}
+
+export interface SteamApiResponse {
+  response: {
+    game_count: number;
+    games: SteamGame[];
+  };
+}
+
+export interface XboxGame {
+  titleId: string;
+  name: string;
+  images?: Array<{
+    url: string;
+    type: string;
+  }>;
+  genres?: string[];
+  releaseDate?: string;
+}
+
+export interface GOGGame {
+  id: number;
+  title: string;
+  image: string;
+  url: string;
+  releaseDate?: string;
+  genres?: string[];
+}
+
+export interface GameLibrary {
+  steam: Game[];
+  xbox: Game[];
+  gog: Game[];
+  unified: Game[];
+}
