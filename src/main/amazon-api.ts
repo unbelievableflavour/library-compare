@@ -449,51 +449,8 @@ export class AmazonElectronAPI {
       } catch (nileError) {
         console.warn('Nile library fetch failed, falling back to sample games:', nileError);
         
-        // Fallback to sample games if nile fails
-        const sampleAmazonGames: AmazonGame[] = [
-          {
-            id: 'amazon-fallout-new-vegas',
-            title: 'Fallout: New Vegas - Ultimate Edition',
-            description: 'Post-apocalyptic RPG with all DLC included',
-            developer: 'Obsidian Entertainment',
-            publisher: 'Bethesda Softworks',
-            images: [{
-              type: 'LOGO',
-              url: 'https://images-na.ssl-images-amazon.com/images/I/81J9Z8Z8Z8L._SL1500_.jpg'
-            }],
-            releaseDate: '2010-10-19',
-            installed: false
-          },
-          {
-            id: 'amazon-control',
-            title: 'Control',
-            description: 'Supernatural action-adventure game',
-            developer: 'Remedy Entertainment',
-            publisher: '505 Games',
-            images: [{
-              type: 'LOGO', 
-              url: 'https://images-na.ssl-images-amazon.com/images/I/71J9Z8Z8Z8L._SL1500_.jpg'
-            }],
-            releaseDate: '2019-08-27',
-            installed: false
-          },
-          {
-            id: 'amazon-mass-effect-legendary',
-            title: 'Mass Effect Legendary Edition',
-            description: 'Remastered trilogy of the acclaimed RPG series',
-            developer: 'BioWare',
-            publisher: 'Electronic Arts',
-            images: [{
-              type: 'LOGO',
-              url: 'https://images-na.ssl-images-amazon.com/images/I/91J9Z8Z8Z8L._SL1500_.jpg'
-            }],
-            releaseDate: '2021-05-14',
-            installed: false
-          }
-        ];
-        
-        console.log(`Amazon Prime Gaming: Returning ${sampleAmazonGames.length} sample games (nile fallback)`);
-        return sampleAmazonGames;
+        console.log(`Amazon Prime Gaming: Returning ${[].length} sample games (nile fallback)`);
+        return [];
       }
       
     } catch (error) {

@@ -17,49 +17,7 @@ interface ApiKeys {
 
 // Demo games for testing
 const createDemoGames = (): Game[] => {
-  return [
-    {
-      id: 'demo-1',
-      name: 'Cyberpunk 2077',
-      platforms: [
-        { name: 'Steam', owned: true, playtime: 4560 },
-        { name: 'GOG', owned: true, playtime: 0 }
-      ],
-      playtime: { steam: 4560 },
-      genres: ['RPG', 'Action']
-    },
-    {
-      id: 'demo-2',
-      name: 'The Witcher 3: Wild Hunt',
-      platforms: [
-        { name: 'Steam', owned: true, playtime: 12340 },
-        { name: 'Xbox', owned: true, playtime: 2340 },
-        { name: 'GOG', owned: true, playtime: 0 }
-      ],
-      playtime: { steam: 12340, xbox: 2340 },
-      genres: ['RPG', 'Adventure']
-    },
-    {
-      id: 'demo-3',
-      name: 'Halo Infinite',
-      platforms: [
-        { name: 'Steam', owned: true, playtime: 890 },
-        { name: 'Xbox', owned: true, playtime: 1560 }
-      ],
-      playtime: { steam: 890, xbox: 1560 },
-      genres: ['FPS', 'Action']
-    },
-    {
-      id: 'demo-4',
-      name: 'Forza Horizon 5',
-      platforms: [
-        { name: 'Steam', owned: true, playtime: 2340 },
-        { name: 'Xbox', owned: true, playtime: 4560 }
-      ],
-      playtime: { steam: 2340, xbox: 4560 },
-      genres: ['Racing', 'Sports']
-    }
-  ];
+  return [];
 };
 
 export default function Library() {
