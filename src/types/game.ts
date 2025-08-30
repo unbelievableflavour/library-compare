@@ -69,6 +69,11 @@ export interface GOGGame {
   url: string;
   releaseDate?: string;
   genres?: string[];
+  // Add more fields based on the GamesDB API response
+  summary?: string;
+  developer?: string;
+  publisher?: string;
+  rating?: number;
 }
 
 export interface GameLibrary {
