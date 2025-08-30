@@ -1,4 +1,4 @@
-# Games Library Compare
+# Library Compare
 
 A modern Electron desktop application that allows you to view and compare your game libraries across multiple platforms including Steam, Xbox, GOG, Epic Games, and Amazon Games in a unified interface.
 
