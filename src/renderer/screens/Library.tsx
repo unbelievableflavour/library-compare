@@ -467,7 +467,7 @@ export default function Library() {
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Game Library</h1>
+              <h1 className="text-3xl font-bold text-gray-900">Library Compare</h1>
               {usingCachedData && (
                 <p className="text-sm text-gray-500 mt-1">
                   📦 Showing cached data • Last updated: {Object.values(cacheStatus)[0]?.age || 'Unknown'}
@@ -526,15 +526,6 @@ export default function Library() {
                 </div>
               );
             })}
-          </div>
-
-          <div className="text-center">
-            <h2 className="text-xl font-semibold text-gray-800 mb-2">
-              Your Unified Game Collection
-            </h2>
-            <p className="text-gray-600">
-              Compare your games across platforms, see playtime, and access store pages
-            </p>
           </div>
           
           {games.length === 0 ? (
