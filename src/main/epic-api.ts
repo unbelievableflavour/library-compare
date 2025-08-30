@@ -70,39 +70,171 @@ export class EpicElectronAPI {
   }
 
   async authenticate(): Promise<EpicTokens> {
-    // Use the exact same method as Heroic Games Launcher
-    // 1. Open legendary.gl/epiclogin in external browser for SID
-    // 2. Frontend shows input field for user to paste the SID
-    // 3. Use legendary binary to authenticate with the SID (via submitAuthCode)
+    console.log('Starting Epic Games authentication with BrowserWindow...');
     
     try {
-      console.log('Starting Epic Games authentication (Heroic/Legendary method)...');
-      
       // Use the exact same URL as Heroic Games Launcher
       const epicLoginUrl = 'https://legendary.gl/epiclogin';
       
-      console.log('Opening Epic Games login page...');
+      console.log('Opening Epic Games login in controlled window...');
       console.log('Login URL:', epicLoginUrl);
       
-      // Open in external browser (exactly like Heroic does)
-      await shell.openExternal(epicLoginUrl);
+      // Open in controlled BrowserWindow (like Amazon Games)
+      const authCode = await this.openEpicAuthWindow(epicLoginUrl);
+      console.log('Epic authorization code captured:', authCode);
       
-      // Return immediately - the frontend will handle the authorization code input
-      // and call submitAuthCode when the user provides the authorization code
+      // Use legendary binary to authenticate with the captured authorization code
+      const success = await this.authenticateWithLegendary(authCode);
+      
+      if (!success) {
+        throw new Error('Epic Games authentication failed with legendary');
+      }
+      
+      // Return successful tokens
       const tokens: EpicTokens = {
-        accessToken: 'pending',
-        refreshToken: 'pending',
-        expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
-        accountId: 'pending',
+        accessToken: 'legendary-managed',
+        refreshToken: 'legendary-managed',
+        expiresAt: Date.now() + (365 * 24 * 60 * 60 * 1000), // 1 year
+        accountId: 'epic-user',
         displayName: 'Epic Games User'
       };
       
-      console.log('Epic Games authentication started - waiting for authorization code...');
+      this.tokens = tokens;
+      console.log('Epic Games authentication completed successfully');
       return tokens;
       
     } catch (error) {
       console.error('Epic Games authentication error:', error);
       throw error;
+    }
+  }
+
+  private async openEpicAuthWindow(authUrl: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const authWindow = new BrowserWindow({
+        width: 800,
+        height: 600,
+        show: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      authWindow.loadURL(authUrl);
+
+      // Listen for URL changes to capture the authorization code
+      authWindow.webContents.on('will-redirect', (event, navigationUrl) => {
+        console.log('Epic auth redirect:', navigationUrl);
+        const code = this.extractEpicAuthCode(navigationUrl);
+        if (code) {
+          authWindow.close();
+          resolve(code);
+        }
+      });
+
+      // Also listen for navigation events
+      authWindow.webContents.on('did-navigate', (event, navigationUrl) => {
+        console.log('Epic auth navigate:', navigationUrl);
+        const code = this.extractEpicAuthCode(navigationUrl);
+        if (code) {
+          authWindow.close();
+          resolve(code);
+        }
+      });
+
+      // Listen for page title changes (legendary.gl shows the code in the page)
+      authWindow.webContents.on('page-title-updated', async (event, title) => {
+        console.log('Epic auth page title:', title);
+        
+        // Check if the page contains an authorization code
+        try {
+          const pageContent = await authWindow.webContents.executeJavaScript(`
+            document.body.innerText || document.body.textContent || ''
+          `);
+          
+          const code = this.extractEpicAuthCodeFromContent(pageContent);
+          if (code) {
+            authWindow.close();
+            resolve(code);
+          }
+        } catch (error) {
+          console.error('Error reading page content:', error);
+        }
+      });
+
+      authWindow.on('closed', () => {
+        reject(new Error('Epic Games authentication window was closed'));
+      });
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        if (!authWindow.isDestroyed()) {
+          authWindow.close();
+          reject(new Error('Epic Games authentication timed out'));
+        }
+      }, 5 * 60 * 1000);
+    });
+  }
+
+  private extractEpicAuthCode(url: string): string | null {
+    try {
+      // Look for authorization code in URL parameters
+      const urlObj = new URL(url);
+      
+      // Check for common Epic Games auth parameters
+      const code = urlObj.searchParams.get('code') || 
+                   urlObj.searchParams.get('authorization_code') ||
+                   urlObj.searchParams.get('sid');
+      
+      if (code) {
+        console.log('Found Epic authorization code in URL:', code);
+        return code;
+      }
+      
+      // Also check URL fragments
+      const fragment = urlObj.hash;
+      if (fragment) {
+        const fragmentParams = new URLSearchParams(fragment.substring(1));
+        const fragmentCode = fragmentParams.get('code') || 
+                            fragmentParams.get('authorization_code') ||
+                            fragmentParams.get('sid');
+        if (fragmentCode) {
+          console.log('Found Epic authorization code in fragment:', fragmentCode);
+          return fragmentCode;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error extracting Epic auth code:', error);
+      return null;
+    }
+  }
+
+  private extractEpicAuthCodeFromContent(content: string): string | null {
+    try {
+      // Look for authorization code patterns in page content
+      // legendary.gl typically shows the code in the page after successful auth
+      
+      // Pattern for SID (Session ID) that Epic Games uses
+      const sidMatch = content.match(/(?:SID|sid|authorization[_\s]code)[:\s]*([a-f0-9]{32,})/i);
+      if (sidMatch) {
+        console.log('Found Epic SID in page content:', sidMatch[1]);
+        return sidMatch[1];
+      }
+      
+      // Pattern for general authorization codes
+      const codeMatch = content.match(/(?:code|token)[:\s]*([a-zA-Z0-9]{20,})/i);
+      if (codeMatch) {
+        console.log('Found Epic code in page content:', codeMatch[1]);
+        return codeMatch[1];
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error extracting Epic auth code from content:', error);
+      return null;
     }
   }
 
