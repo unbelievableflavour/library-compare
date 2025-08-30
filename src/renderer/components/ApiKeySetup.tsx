@@ -575,7 +575,8 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
           {!apiKeys.amazonCredentials ? (
             <div className="space-y-3">
               <div className="text-sm text-muted-foreground">
-                Connect your Amazon Games account using OAuth2 authentication to import your game library.
+                Connect your Amazon Prime Gaming account using the nile binary (similar to Heroic Games Launcher). 
+                This will attempt to use the nile tool for authentication and library access.
               </div>
               <Button
                 type="button"
@@ -583,10 +584,11 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
                 disabled={amazonAuthenticating}
                 className="w-full"
               >
-                {amazonAuthenticating ? 'Connecting...' : 'Connect Amazon Games Account'}
+                {amazonAuthenticating ? 'Connecting...' : 'Connect Amazon Prime Gaming'}
               </Button>
               <div className="text-xs text-muted-foreground">
-                This will open Amazon's authentication page in a new window. You'll need to log in and authorize access to your library.
+                This will use the nile binary to authenticate with Amazon Prime Gaming. 
+                If nile is not available, it will fall back to a manual browser-based process with sample games.
               </div>
             </div>
           ) : (
