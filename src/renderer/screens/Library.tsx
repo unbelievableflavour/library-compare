@@ -1,82 +1,61 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '../components/ui/button';
 import { GameTable } from '../components/GameTable';
 import { GameLibraryManager } from '../lib/gameLibrary';
 import { Game } from '../../types/game';
 import { getPlatformIcon } from '../components/PlatformIcons';
 
-interface GOGCredentials {
-  access_token: string;
-  expires_in: number;
-  token_type: string;
-  scope: string;
-  session_id: string;
-  refresh_token: string;
-  user_id: string;
-}
-
 interface ApiKeys {
   steamApiKey?: string;
   steamId?: string;
   xboxCredentials?: any;
-  gogCredentials?: GOGCredentials;
+  gogCredentials?: any;
   epicCredentials?: any;
   amazonCredentials?: any;
 }
 
-// Remove the local Game interface since we're importing it from types
-
-// Demo data for testing
+// Demo games for testing
 const createDemoGames = (): Game[] => {
   return [
     {
       id: 'demo-1',
       name: 'Cyberpunk 2077',
       platforms: [
-        { name: 'Steam', owned: true, playtime: 4500 },
-        { name: 'GOG', owned: true }
+        { name: 'Steam', owned: true, playtime: 4560 },
+        { name: 'GOG', owned: true, playtime: 0 }
       ],
-      appId: { steam: '1091500', gog: '1423049311' },
-      playtime: { steam: 4500 },
-      genres: ['RPG', 'Action'],
-      images: { icon: 'https://via.placeholder.com/32x32' }
+      playtime: { steam: 4560 },
+      genres: ['RPG', 'Action']
     },
     {
       id: 'demo-2',
       name: 'The Witcher 3: Wild Hunt',
       platforms: [
-        { name: 'Steam', owned: true, playtime: 8200 },
-        { name: 'Xbox', owned: true },
-        { name: 'GOG', owned: true }
+        { name: 'Steam', owned: true, playtime: 12340 },
+        { name: 'Xbox', owned: true, playtime: 2340 },
+        { name: 'GOG', owned: true, playtime: 0 }
       ],
-      appId: { steam: '292030', xbox: 'BRT4J27XJDXK', gog: '1207664663' },
-      playtime: { steam: 8200 },
+      playtime: { steam: 12340, xbox: 2340 },
       genres: ['RPG', 'Adventure']
     },
     {
       id: 'demo-3',
       name: 'Halo Infinite',
       platforms: [
-        { name: 'Steam', owned: true, playtime: 2100 },
-        { name: 'Xbox', owned: true }
+        { name: 'Steam', owned: true, playtime: 890 },
+        { name: 'Xbox', owned: true, playtime: 1560 }
       ],
-      appId: { steam: '1240440', xbox: '9PP5G1F0C2B6' },
-      playtime: { steam: 2100 },
+      playtime: { steam: 890, xbox: 1560 },
       genres: ['FPS', 'Action']
     },
     {
       id: 'demo-4',
-      name: 'Baldur\'s Gate 3',
-      platforms: [{ name: 'Steam', owned: true, playtime: 15600 }],
-      appId: { steam: '1086940' },
-      playtime: { steam: 15600 },
-      genres: ['RPG', 'Strategy']
-    },
-    {
-      id: 'demo-5',
       name: 'Forza Horizon 5',
-      platforms: [{ name: 'Xbox', owned: true }],
-      appId: { xbox: '9NKX70BBXDRN' },
+      platforms: [
+        { name: 'Steam', owned: true, playtime: 2340 },
+        { name: 'Xbox', owned: true, playtime: 4560 }
+      ],
+      playtime: { steam: 2340, xbox: 4560 },
       genres: ['Racing', 'Sports']
     }
   ];
@@ -88,12 +67,203 @@ export default function Library() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authWarnings, setAuthWarnings] = useState<string[]>([]);
+  
+  // Track if games are currently being loaded to prevent duplicate calls
+  const isLoadingGamesRef = useRef(false);
+  const lastLoadedKeysRef = useRef<string>('');
 
-  useEffect(() => {
-    loadApiKeys();
-  }, []);
+  const loadGames = useCallback(async (keys: ApiKeys) => {
+    // Create a unique key for the current API keys to detect changes
+    const keysSignature = JSON.stringify(keys);
+    
+    // Prevent duplicate calls with the same keys
+    if (isLoadingGamesRef.current && lastLoadedKeysRef.current === keysSignature) {
+      console.log('Games already loading with same keys, skipping duplicate call');
+      return;
+    }
+    
+    try {
+      isLoadingGamesRef.current = true;
+      lastLoadedKeysRef.current = keysSignature;
+      setLoading(true);
+      
+      // Check for demo mode
+      if (keys.steamApiKey === 'demo') {
+        const demoGames = createDemoGames();
+        setGames(demoGames);
+        setLoading(false);
+        return;
+      }
+      
+      // Helper function to normalize game titles
+      const normalizeGameTitle = (game: any) => {
+        let title = game.title || game.name || 'Unknown Game';
+        if (typeof title === 'object' && title !== null) {
+          title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
+        }
+        return {
+          ...game,
+          name: title,
+          title: title
+        };
+      };
 
-  const loadApiKeys = async () => {
+      // Create parallel promises for all platform API calls
+      const startTime = performance.now();
+      console.log('🚀 Starting parallel game loading from all platforms...');
+      
+      const platformPromises = [
+        // GOG Games Promise
+        keys.gogCredentials
+          ? (() => {
+              console.log('📡 Initiating GOG API call...');
+              return window.electronAPI.gog.getGames()
+                .then(rawGogGames => {
+                  const elapsed = performance.now() - startTime;
+                  console.log(`✅ GOG games loaded: ${rawGogGames?.length || 0} games (${elapsed.toFixed(0)}ms)`);
+                  return rawGogGames && Array.isArray(rawGogGames) 
+                    ? rawGogGames.map(normalizeGameTitle)
+                    : [];
+                })
+                .catch(error => {
+                  const elapsed = performance.now() - startTime;
+                  console.error(`❌ Failed to load GOG games (${elapsed.toFixed(0)}ms):`, error);
+                  return [];
+                });
+            })()
+          : Promise.resolve([]),
+
+        // Steam Games Promise
+        keys.steamApiKey && keys.steamId
+          ? (() => {
+              console.log('📡 Initiating Steam API call...');
+              return window.electronAPI.steam.getGames(keys.steamApiKey, keys.steamId)
+                .then(rawSteamGames => {
+                  const elapsed = performance.now() - startTime;
+                  console.log(`✅ Steam games loaded: ${rawSteamGames?.length || 0} games (${elapsed.toFixed(0)}ms)`);
+                  return rawSteamGames && Array.isArray(rawSteamGames)
+                    ? rawSteamGames.map(normalizeGameTitle)
+                    : [];
+                })
+                .catch(error => {
+                  const elapsed = performance.now() - startTime;
+                  console.error(`❌ Failed to load Steam games (${elapsed.toFixed(0)}ms):`, error);
+                  return [];
+                });
+            })()
+          : Promise.resolve([]),
+
+        // Xbox Games Promise
+        keys.xboxCredentials
+          ? (() => {
+              console.log('📡 Initiating Xbox API call...');
+              return window.electronAPI.xbox.getGames(keys.xboxCredentials)
+                .then(rawXboxGames => {
+                  const elapsed = performance.now() - startTime;
+                  console.log(`✅ Xbox games loaded: ${rawXboxGames?.length || 0} games (${elapsed.toFixed(0)}ms)`);
+                  return rawXboxGames && Array.isArray(rawXboxGames)
+                    ? rawXboxGames.map(normalizeGameTitle)
+                    : [];
+                })
+                .catch(async (error) => {
+                  const elapsed = performance.now() - startTime;
+                  console.error(`❌ Failed to load Xbox games (${elapsed.toFixed(0)}ms):`, error);
+                  // Check if it's an authentication error
+                  if (error.message && error.message.includes('authentication failed')) {
+                    console.warn('Xbox authentication expired - clearing stored credentials');
+                    await window.electronAPI.store.delete('xboxCredentials');
+                    setApiKeys(prev => {
+                      const { xboxCredentials, ...rest } = prev;
+                      return rest;
+                    });
+                    setAuthWarnings(prev => [...prev, 'Xbox authentication expired. Please reconnect your Xbox account in settings.']);
+                  }
+                  return [];
+                });
+            })()
+          : Promise.resolve([]),
+
+        // Epic Games Promise
+        keys.epicCredentials
+          ? (() => {
+              console.log('📡 Initiating Epic Games API call...');
+              return window.electronAPI.epic.getGames(keys.epicCredentials)
+                .then(rawEpicGames => {
+                  const elapsed = performance.now() - startTime;
+                  console.log(`✅ Epic games loaded: ${rawEpicGames?.length || 0} games (${elapsed.toFixed(0)}ms)`);
+                  return rawEpicGames && Array.isArray(rawEpicGames)
+                    ? rawEpicGames.map(normalizeGameTitle)
+                    : [];
+                })
+                .catch(async (error) => {
+                  const elapsed = performance.now() - startTime;
+                  console.error(`❌ Failed to load Epic games (${elapsed.toFixed(0)}ms):`, error);
+                  // Check if it's an authentication error
+                  if (error.message && error.message.includes('authentication failed')) {
+                    console.warn('Epic authentication expired - clearing stored credentials');
+                    await window.electronAPI.store.delete('epicCredentials');
+                    setApiKeys(prev => {
+                      const { epicCredentials, ...rest } = prev;
+                      return rest;
+                    });
+                    setAuthWarnings(prev => [...prev, 'Epic Games authentication expired. Please reconnect your Epic account in settings.']);
+                  }
+                  return [];
+                });
+            })()
+          : Promise.resolve([]),
+
+        // Amazon Games Promise
+        keys.amazonCredentials
+          ? (() => {
+              console.log('📡 Initiating Amazon Games API call...');
+              return window.electronAPI.amazon.getGames(keys.amazonCredentials)
+                .then(rawAmazonGames => {
+                  const elapsed = performance.now() - startTime;
+                  console.log(`✅ Amazon games loaded: ${rawAmazonGames?.length || 0} games (${elapsed.toFixed(0)}ms)`);
+                  return rawAmazonGames && Array.isArray(rawAmazonGames)
+                    ? rawAmazonGames.map(normalizeGameTitle)
+                    : [];
+                })
+                .catch(async (error) => {
+                  const elapsed = performance.now() - startTime;
+                  console.error(`❌ Failed to load Amazon games (${elapsed.toFixed(0)}ms):`, error);
+                  // Check if it's an authentication error
+                  if (error.message && error.message.includes('authentication failed')) {
+                    console.warn('Amazon authentication expired - clearing stored credentials');
+                    await window.electronAPI.store.delete('amazonCredentials');
+                    setApiKeys(prev => {
+                      const { amazonCredentials, ...rest } = prev;
+                      return rest;
+                    });
+                    setAuthWarnings(prev => [...prev, 'Amazon Games authentication expired. Please reconnect your Amazon account in settings.']);
+                  }
+                  return [];
+                });
+            })()
+          : Promise.resolve([])
+      ];
+
+      console.log('⏳ Waiting for all platform API calls to complete...');
+      // Execute all platform API calls in parallel and destructure results
+      const [gogGames, steamGames, xboxGames, epicGames, amazonGames] = await Promise.all(platformPromises);
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`🎉 All platforms loaded in ${totalTime.toFixed(0)}ms - merging games...`);
+
+      // Merge games using GameLibraryManager
+      const mergedGames = GameLibraryManager.mergeGames(steamGames, xboxGames, gogGames, epicGames, amazonGames);
+      setGames(mergedGames);
+    } catch (error) {
+      console.error('Failed to load games:', error);
+      setError('Failed to load games');
+    } finally {
+      setLoading(false);
+      isLoadingGamesRef.current = false;
+    }
+  }, []); // Empty dependency array since we handle keys as parameters
+
+  const loadApiKeys = useCallback(async () => {
     try {
       const storedSteamApiKey = await window.electronAPI.store.get('steamApiKey');
       const storedSteamId = await window.electronAPI.store.get('steamId');
@@ -122,194 +292,11 @@ export default function Library() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadGames]); // Depend on loadGames
 
-  const loadGames = async (keys: ApiKeys) => {
-    try {
-      setLoading(true);
-      
-      // Check for demo mode
-      if (keys.steamApiKey === 'demo') {
-        const demoGames = createDemoGames();
-        setGames(demoGames);
-        setLoading(false);
-        return;
-      }
-      
-      let steamGames: any[] = [];
-      let xboxGames: any[] = [];
-      let gogGames: any[] = [];
-      let epicGames: any[] = [];
-      let amazonGames: any[] = [];
-
-      // Load GOG games
-      if (keys.gogCredentials) {
-        try {
-          console.log('Loading GOG games...');
-          const rawGogGames = await window.electronAPI.gog.getGames();
-          console.log('GOG games loaded:', rawGogGames?.length || 0);
-          
-          if (rawGogGames && Array.isArray(rawGogGames)) {
-            gogGames = rawGogGames.map((game: any) => {
-              // Handle localized titles - extract string from localization objects
-              let title = game.title || game.name || 'Unknown Game';
-              if (typeof title === 'object' && title !== null) {
-                title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
-              }
-              
-              return {
-                ...game,
-                name: title,
-                title: title
-              };
-            });
-          }
-        } catch (error) {
-          console.error('Failed to load GOG games:', error);
-        }
-      }
-
-      // Load Steam games
-      if (keys.steamApiKey && keys.steamId) {
-        try {
-          console.log('Loading Steam games...');
-          const rawSteamGames = await window.electronAPI.steam.getGames(keys.steamApiKey, keys.steamId);
-          console.log('Steam games loaded:', rawSteamGames?.length || 0);
-          
-          if (rawSteamGames && Array.isArray(rawSteamGames)) {
-            steamGames = rawSteamGames.map((game: any) => ({
-              ...game,
-              name: game.name || 'Unknown Game',
-              title: game.name || 'Unknown Game'
-            }));
-          }
-        } catch (error) {
-          console.error('Failed to load Steam games:', error);
-        }
-      }
-
-      // Load Xbox games
-      if (keys.xboxCredentials) {
-        try {
-          console.log('Loading Xbox games...');
-          const rawXboxGames = await window.electronAPI.xbox.getGames(keys.xboxCredentials);
-          console.log('Xbox games loaded:', rawXboxGames?.length || 0);
-          
-          if (rawXboxGames && Array.isArray(rawXboxGames)) {
-            xboxGames = rawXboxGames.map((game: any) => {
-              // Handle localized titles - extract string from localization objects
-              let title = game.name || game.title || 'Unknown Game';
-              if (typeof title === 'object' && title !== null) {
-                title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
-              }
-              
-              return {
-                ...game,
-                name: title,
-                title: title
-              };
-            });
-          }
-        } catch (error) {
-          console.error('Failed to load Xbox games:', error);
-          // Check if it's an authentication error
-          if (error.message && error.message.includes('authentication failed')) {
-            console.warn('Xbox authentication expired - clearing stored credentials');
-            // Clear expired Xbox credentials
-            await window.electronAPI.store.delete('xboxCredentials');
-            // Update local state
-            setApiKeys(prev => {
-              const { xboxCredentials, ...rest } = prev;
-              return rest;
-            });
-            // Add warning message
-            setAuthWarnings(prev => [...prev, 'Xbox authentication expired. Please reconnect your Xbox account in settings.']);
-          }
-        }
-      }
-
-      // Load Epic Games
-      if (keys.epicCredentials) {
-        try {
-          console.log('Loading Epic games...');
-          const rawEpicGames = await window.electronAPI.epic.getGames(keys.epicCredentials);
-          console.log('Epic games loaded:', rawEpicGames?.length || 0);
-          
-          if (rawEpicGames && Array.isArray(rawEpicGames)) {
-            epicGames = rawEpicGames.map((game: any) => {
-              let title = game.title || game.name || 'Unknown Game';
-              if (typeof title === 'object' && title !== null) {
-                title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
-              }
-              
-              return {
-                ...game,
-                name: title,
-                title: title
-              };
-            });
-          }
-        } catch (error) {
-          console.error('Failed to load Epic games:', error);
-          // Check if it's an authentication error
-          if (error.message && error.message.includes('authentication failed')) {
-            console.warn('Epic authentication expired - clearing stored credentials');
-            await window.electronAPI.store.delete('epicCredentials');
-            setApiKeys(prev => {
-              const { epicCredentials, ...rest } = prev;
-              return rest;
-            });
-            setAuthWarnings(prev => [...prev, 'Epic Games authentication expired. Please reconnect your Epic account in settings.']);
-          }
-        }
-      }
-
-      // Load Amazon Games
-      if (keys.amazonCredentials) {
-        try {
-          console.log('Loading Amazon games...');
-          const rawAmazonGames = await window.electronAPI.amazon.getGames(keys.amazonCredentials);
-          console.log('Amazon games loaded:', rawAmazonGames?.length || 0);
-          
-          if (rawAmazonGames && Array.isArray(rawAmazonGames)) {
-            amazonGames = rawAmazonGames.map((game: any) => {
-              let title = game.title || game.name || 'Unknown Game';
-              if (typeof title === 'object' && title !== null) {
-                title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
-              }
-              
-              return {
-                ...game,
-                name: title,
-                title: title
-              };
-            });
-          }
-        } catch (error) {
-          console.error('Failed to load Amazon games:', error);
-          // Check if it's an authentication error
-          if (error.message && error.message.includes('authentication failed')) {
-            console.warn('Amazon authentication expired - clearing stored credentials');
-            await window.electronAPI.store.delete('amazonCredentials');
-            setApiKeys(prev => {
-              const { amazonCredentials, ...rest } = prev;
-              return rest;
-            });
-            setAuthWarnings(prev => [...prev, 'Amazon Games authentication expired. Please reconnect your Amazon account in settings.']);
-          }
-        }
-      }
-
-      // Merge games using GameLibraryManager
-      const mergedGames = GameLibraryManager.mergeGames(steamGames, xboxGames, gogGames, epicGames, amazonGames);
-      setGames(mergedGames);
-    } catch (error) {
-      console.error('Failed to load games:', error);
-      setError('Failed to load games');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    loadApiKeys();
+  }, [loadApiKeys]);
 
   const goToSettings = () => {
     window.location.hash = '#/setup';
@@ -330,114 +317,115 @@ export default function Library() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
-          <Button onClick={() => window.location.reload()}>Retry</Button>
+          <div className="text-red-500 text-xl mb-4">⚠️ {error}</div>
+          <Button onClick={() => window.location.reload()}>
+            Retry
+          </Button>
         </div>
       </div>
     );
   }
 
-  if (Object.keys(apiKeys).length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <h2 className="text-2xl font-bold mb-4">Welcome to Library Compare!</h2>
-          <p className="text-gray-600 mb-6">
-            You haven't set up any gaming platforms yet. Connect your accounts to start comparing your game libraries.
-          </p>
-          <Button onClick={goToSettings}>Setup Gaming Accounts</Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Calculate platform statistics
+  const totalGames = games.length;
   const platformStats = games.reduce((acc, game) => {
     game.platforms.forEach(platform => {
-      acc[platform.name] = (acc[platform.name] || 0) + 1;
+      if (!acc[platform.name]) {
+        acc[platform.name] = 0;
+      }
+      acc[platform.name]++;
     });
     return acc;
   }, {} as Record<string, number>);
 
-  const totalPlatforms = Object.keys(platformStats).length;
-  const crossPlatformGames = games.filter(game => game.platforms.length > 1).length;
-
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto py-8 px-4">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Your Game Library</h1>
-            <p className="text-gray-600 mt-2">
-              {games.length} games across {totalPlatforms} platforms
-              {crossPlatformGames > 0 && (
-                <span className="ml-2 text-blue-600">
-                  • {crossPlatformGames} cross-platform
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => alert(`Total Games: ${games.length}`)}>
-              Total Games: {games.length}
-            </Button>
-            <Button variant="outline" onClick={goToSettings}>
-              Manage Accounts
-            </Button>
-          </div>
-        </div>
-
-        {/* Authentication Warnings */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Auth Warnings */}
         {authWarnings.length > 0 && (
           <div className="mb-6">
             {authWarnings.map((warning, index) => (
-              <div key={index} className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <div className="w-5 h-5 text-yellow-600 mr-2">⚠️</div>
-                    <p className="text-yellow-800 text-sm">{warning}</p>
+              <div key={index} className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-2">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
                   </div>
-                  <button
-                    onClick={() => setAuthWarnings(prev => prev.filter((_, i) => i !== index))}
-                    className="text-yellow-600 hover:text-yellow-800 text-sm font-medium"
-                  >
-                    Dismiss
-                  </button>
+                  <div className="ml-3">
+                    <p className="text-sm text-yellow-800">{warning}</p>
+                  </div>
+                  <div className="ml-auto pl-3">
+                    <div className="-mx-1.5 -my-1.5">
+                      <button
+                        type="button"
+                        className="inline-flex bg-yellow-50 rounded-md p-1.5 text-yellow-500 hover:bg-yellow-100"
+                        onClick={() => setAuthWarnings(prev => prev.filter((_, i) => i !== index))}
+                      >
+                        <span className="sr-only">Dismiss</span>
+                        <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Platform Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {Object.entries(platformStats).map(([platform, count]) => (
-            <div key={platform} className="bg-white p-6 rounded-lg shadow">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold">{platform}</h3>
-                  <p className="text-gray-600">{count} games</p>
-                </div>
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  platform === 'Steam' ? 'bg-blue-100 text-blue-600' :
-                  platform === 'GOG' ? 'bg-purple-100 text-purple-600' :
-                  platform === 'Xbox' ? 'bg-green-100 text-green-600' :
-                  platform === 'Epic Games' ? 'bg-orange-100 text-orange-600' :
-                  platform === 'Amazon Games' ? 'bg-yellow-100 text-yellow-600' : 
-                  'bg-gray-100 text-gray-600'
-                }`}>
-                  {getPlatformIcon(platform, 'w-6 h-6')}
-                </div>
-              </div>
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold text-gray-900">Game Library</h1>
+            <div className="flex gap-4">
+              <Button 
+                variant="outline" 
+                onClick={() => loadGames(apiKeys)}
+                disabled={loading}
+              >
+                {loading ? 'Refreshing...' : 'Refresh Games'}
+              </Button>
+              <Button onClick={goToSettings}>
+                Settings
+              </Button>
             </div>
-          ))}
-        </div>
+          </div>
 
-        {/* Games Table */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold">Game Library</h2>
-            <p className="text-gray-600 text-sm mt-1">
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+            {/* Total Games */}
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">{totalGames}</div>
+              <div className="text-sm text-gray-600">Total Games</div>
+            </div>
+
+            {/* Platform Stats */}
+            {Object.entries(platformStats).map(([platform, count]) => (
+              <div key={platform} className="bg-white rounded-lg shadow p-4 text-center">
+                <div className="flex items-center justify-center mb-2">
+                  <div className={`w-8 h-8 flex items-center justify-center rounded-full ${
+                    platform === 'Steam' ? 'bg-blue-100 text-blue-600' :
+                    platform === 'Xbox' ? 'bg-green-100 text-green-600' :
+                    platform === 'GOG' ? 'bg-purple-100 text-purple-600' :
+                    platform === 'Epic Games' ? 'bg-gray-100 text-gray-600' :
+                    platform === 'Amazon Games' ? 'bg-orange-100 text-orange-600' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {getPlatformIcon(platform, 'h-4 w-4')}
+                  </div>
+                </div>
+                <div className="text-lg font-semibold">{count}</div>
+                <div className="text-xs text-gray-600">{platform}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center">
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">
+              Your Unified Game Collection
+            </h2>
+            <p className="text-gray-600">
               Compare your games across platforms, see playtime, and access store pages
             </p>
           </div>
