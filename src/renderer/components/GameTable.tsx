@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Game, Platform } from '../../types/game';
 import { GameLibraryManager } from '../lib/gameLibrary';
-import { Search, ExternalLink, Clock, Gamepad2 } from 'lucide-react';
+import { Search, ExternalLink, Gamepad2 } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { getPlatformIcon } from './PlatformIcons';
@@ -16,7 +16,7 @@ interface GameTableProps {
 export function GameTable({ games, loading = false }: GameTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'playtime' | 'platforms'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'platforms'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const filteredAndSortedGames = useMemo(() => {
@@ -35,21 +35,7 @@ export function GameTable({ games, loading = false }: GameTableProps) {
         case 'name':
           comparison = a.name.localeCompare(b.name);
           break;
-        case 'playtime':
-          const aPlaytime = Math.max(
-            a.playtime?.steam || 0, 
-            a.playtime?.xbox || 0,
-            a.playtime?.epic || 0,
-            a.playtime?.amazon || 0
-          );
-          const bPlaytime = Math.max(
-            b.playtime?.steam || 0, 
-            b.playtime?.xbox || 0,
-            b.playtime?.epic || 0,
-            b.playtime?.amazon || 0
-          );
-          comparison = aPlaytime - bPlaytime;
-          break;
+
         case 'platforms':
           comparison = a.platforms.length - b.platforms.length;
           break;
@@ -142,17 +128,7 @@ export function GameTable({ games, loading = false }: GameTableProps) {
                   )}
                 </button>
               </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('playtime')}
-                  className="flex items-center gap-1 font-medium hover:text-blue-600"
-                >
-                  Playtime
-                  {sortBy === 'playtime' && (
-                    <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </button>
-              </th>
+
               <th className="px-4 py-3 text-left">Actions</th>
             </tr>
           </thead>
@@ -174,12 +150,6 @@ export function GameTable({ games, loading = false }: GameTableProps) {
 }
 
 function GameRow({ game }: { game: Game }) {
-  const totalPlaytime = Math.max(
-    game.playtime?.steam || 0, 
-    game.playtime?.xbox || 0,
-    game.playtime?.epic || 0,
-    game.playtime?.amazon || 0
-  );
 
   return (
     <tr className="border-b hover:bg-gray-50">
@@ -226,16 +196,7 @@ function GameRow({ game }: { game: Game }) {
           })}
         </div>
       </td>
-      <td className="px-4 py-3">
-        {totalPlaytime > 0 ? (
-          <div className="flex items-center gap-1">
-            <Clock className="h-4 w-4 text-gray-600" />
-            <span>{GameLibraryManager.formatPlaytime(totalPlaytime)}</span>
-          </div>
-        ) : (
-          <span className="text-gray-600">-</span>
-        )}
-      </td>
+
       <td className="px-4 py-3">
         <div className="flex gap-1">
           {game.appId?.steam && (

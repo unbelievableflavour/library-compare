@@ -407,24 +407,29 @@ export default function Library() {
             </div>
 
             {/* Platform Stats */}
-            {Object.entries(platformStats).map(([platform, count]) => (
-              <div key={platform} className="bg-white rounded-lg shadow p-4 text-center">
-                <div className="flex items-center justify-center mb-2">
-                  <div className={`w-8 h-8 flex items-center justify-center rounded-full ${
-                    platform === 'Steam' ? 'bg-blue-100 text-blue-600' :
-                    platform === 'Xbox' ? 'bg-green-100 text-green-600' :
-                    platform === 'GOG' ? 'bg-purple-100 text-purple-600' :
-                    platform === 'Epic Games' ? 'bg-gray-100 text-gray-600' :
-                    platform === 'Amazon Games' ? 'bg-orange-100 text-orange-600' :
-                    'bg-gray-100 text-gray-600'
-                  }`}>
-                    {getPlatformIcon(platform, 'h-4 w-4')}
+            {Object.entries(platformStats).map(([platform, count]) => {
+              // Display "Xbox Console" instead of "Xbox" for better clarity
+              const displayName = platform === 'Xbox' ? 'Xbox Console' : platform;
+              
+              return (
+                <div key={platform} className="bg-white rounded-lg shadow p-4 text-center">
+                  <div className="flex items-center justify-center mb-2">
+                    <div className={`w-8 h-8 flex items-center justify-center rounded-full ${
+                      platform === 'Steam' ? 'bg-blue-100 text-blue-600' :
+                      platform === 'Xbox' ? 'bg-green-100 text-green-600' :
+                      platform === 'GOG' ? 'bg-purple-100 text-purple-600' :
+                      platform === 'Epic Games' ? 'bg-gray-100 text-gray-600' :
+                      platform === 'Amazon Games' ? 'bg-orange-100 text-orange-600' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {getPlatformIcon(platform, 'h-4 w-4')}
+                    </div>
                   </div>
+                  <div className="text-lg font-semibold">{count}</div>
+                  <div className="text-xs text-gray-600">{displayName}</div>
                 </div>
-                <div className="text-lg font-semibold">{count}</div>
-                <div className="text-xs text-gray-600">{platform}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="text-center">

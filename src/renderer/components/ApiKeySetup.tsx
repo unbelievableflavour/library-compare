@@ -158,32 +158,30 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
   };
 
   const handleEpicAuth = async () => {
+    setEpicAuthenticating(true);
     setValidationErrors(prev => ({ ...prev, epic: undefined }));
     
-    // Show the code input immediately and start the auth process
-    setShowEpicCodeInput(true);
-    
     try {
-      // Start the authentication process (opens browser)
-      // This will open the browser but not wait for completion
-      window.electronAPI.epic.authenticate().catch(error => {
-        console.error('Epic authentication error:', error);
-        if (!error.message?.includes('cancelled')) {
-          setValidationErrors(prev => ({ 
-            ...prev, 
-            epic: error instanceof Error ? error.message : 'Authentication failed' 
-          }));
-        }
-        setShowEpicCodeInput(false);
-      });
+      // Use the new automatic BrowserWindow authentication
+      const credentials = await window.electronAPI.epic.authenticate();
+      
+      if (credentials) {
+        setApiKeys(prev => ({ ...prev, epicCredentials: credentials }));
+        console.log('Epic Games authentication successful');
+      } else {
+        throw new Error('Epic Games authentication failed');
+      }
       
     } catch (error) {
-      console.error('Epic authentication start error:', error);
-      setValidationErrors(prev => ({ 
-        ...prev, 
-        epic: error instanceof Error ? error.message : 'Failed to start authentication' 
-      }));
-      setShowEpicCodeInput(false);
+      console.error('Epic authentication error:', error);
+      if (!error.message?.includes('cancelled')) {
+        setValidationErrors(prev => ({ 
+          ...prev, 
+          epic: error instanceof Error ? error.message : 'Authentication failed' 
+        }));
+      }
+    } finally {
+      setEpicAuthenticating(false);
     }
   };
 
@@ -479,63 +477,20 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
           
           {!apiKeys.epicCredentials ? (
             <div className="space-y-3">
-              {!showEpicCodeInput ? (
-                <>
-                  <div className="text-sm text-muted-foreground">
-                    Connect your Epic Games account using the same method as Heroic Games Launcher.
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={handleEpicAuth}
-                    disabled={epicAuthenticating}
-                    className="w-full"
-                  >
-                    {epicAuthenticating ? 'Connecting...' : 'Connect Epic Games Account'}
-                  </Button>
-                  <div className="text-xs text-muted-foreground">
-                    This will open legendary.gl/epiclogin in your browser. You'll need to log in and copy the authorization code from the JSON response.
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-sm text-muted-foreground">
-                    <p className="mb-2">Follow these steps to complete Epic Games authentication:</p>
-                    <ol className="list-decimal list-inside space-y-1 text-xs">
-                      <li>Log in to your Epic Games account in the browser window that opened (legendary.gl/epiclogin)</li>
-                      <li>After logging in, you'll see a JSON response with an "authorizationCode" field</li>
-                      <li>Copy the value from the "authorizationCode" field (without quotes) and paste it below</li>
-                      <li>Example: if you see "authorizationCode":"abc123", copy just "abc123"</li>
-                    </ol>
-                  </div>
-                  <div className="space-y-2">
-                    <Input
-                      type="text"
-                      placeholder="Paste the authorizationCode value here..."
-                      value={epicAuthCode}
-                      onChange={(e) => setEpicAuthCode(e.target.value)}
-                      className="w-full"
-                    />
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        onClick={handleEpicCodeSubmit}
-                        disabled={!epicAuthCode.trim() || epicAuthenticating}
-                        className="flex-1"
-                      >
-                        {epicAuthenticating ? 'Authenticating...' : 'Submit Code'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleEpicCancel}
-                        className="flex-1"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                </>
-              )}
+              <div className="text-sm text-muted-foreground">
+                Connect your Epic Games account using automatic authentication (like Heroic Games Launcher).
+              </div>
+              <Button
+                type="button"
+                onClick={handleEpicAuth}
+                disabled={epicAuthenticating}
+                className="w-full"
+              >
+                {epicAuthenticating ? 'Connecting...' : 'Connect Epic Games Account'}
+              </Button>
+              <div className="text-xs text-muted-foreground">
+                This will open legendary.gl/epiclogin in a secure window. Just log in normally - the authorization code will be captured automatically.
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
