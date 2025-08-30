@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '../components/ui/button';
 import { GameTable } from '../components/GameTable';
 import { GameLibraryManager } from '../lib/gameLibrary';
+import { GameCacheService } from '../lib/gameCache';
 import { Game } from '../../types/game';
 import { getPlatformIcon } from '../components/PlatformIcons';
 
@@ -68,17 +69,55 @@ export default function Library() {
   const [loadingMessage, setLoadingMessage] = useState('Loading your game library...');
   const [error, setError] = useState<string | null>(null);
   const [authWarnings, setAuthWarnings] = useState<string[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [usingCachedData, setUsingCachedData] = useState(false);
+  const [cacheStatus, setCacheStatus] = useState<Record<string, { count: number; age: string; expired: boolean }>>({});
   
   // Track if games are currently being loaded to prevent duplicate calls
   const isLoadingGamesRef = useRef(false);
   const lastLoadedKeysRef = useRef<string>('');
 
-  const loadGames = useCallback(async (keys: ApiKeys) => {
+  // Load games from cache first, then optionally refresh
+  const loadCachedGames = useCallback(async () => {
+    try {
+      setLoadingMessage('Loading cached games...');
+      const cachedGames = await GameCacheService.getUnifiedGames();
+      
+      if (cachedGames && cachedGames.length > 0) {
+        console.log(`📦 Loaded ${cachedGames.length} games from cache`);
+        setGames(cachedGames);
+        setUsingCachedData(true);
+        setLoading(false);
+        
+        // Update cache status
+        const status = await GameCacheService.getCacheStatus();
+        setCacheStatus(status);
+        
+        return true; // Successfully loaded from cache
+      }
+      
+      return false; // No cache available
+    } catch (error) {
+      console.error('Failed to load cached games:', error);
+      return false;
+    }
+  }, []);
+
+  const loadGames = useCallback(async (keys: ApiKeys, forceRefresh = false) => {
     // Create a unique key for the current API keys to detect changes
     const keysSignature = JSON.stringify(keys);
     
+    // If not forcing refresh, try to load from cache first
+    if (!forceRefresh) {
+      const cacheLoaded = await loadCachedGames();
+      if (cacheLoaded) {
+        console.log('✅ Using cached games, skipping API calls');
+        return;
+      }
+    }
+    
     // Prevent duplicate calls with the same keys
-    if (isLoadingGamesRef.current && lastLoadedKeysRef.current === keysSignature) {
+    if (isLoadingGamesRef.current && lastLoadedKeysRef.current === keysSignature && !forceRefresh) {
       console.log('Games already loading with same keys, skipping duplicate call');
       return;
     }
@@ -252,12 +291,29 @@ export default function Library() {
       
       const totalTime = performance.now() - startTime;
       console.log(`🎉 All platforms loaded in ${totalTime.toFixed(0)}ms - merging games...`);
+      console.log(`📊 Platform game counts: Steam=${steamGames.length}, Xbox=${xboxGames.length}, GOG=${gogGames.length}, Epic=${epicGames.length}, Amazon=${amazonGames.length}`);
 
       setLoadingMessage('Merging games from all platforms...');
       
       // Merge games using GameLibraryManager
       const mergedGames = GameLibraryManager.mergeGames(steamGames, xboxGames, gogGames, epicGames, amazonGames);
       setGames(mergedGames);
+      
+      // Cache individual platform games and unified library
+      console.log('💾 Caching games...');
+      await Promise.all([
+        GameCacheService.savePlatformGames('steam', steamGames),
+        GameCacheService.savePlatformGames('xbox', xboxGames), 
+        GameCacheService.savePlatformGames('gog', gogGames),
+        GameCacheService.savePlatformGames('epic', epicGames),
+        GameCacheService.savePlatformGames('amazon', amazonGames),
+        GameCacheService.saveUnifiedGames(mergedGames)
+      ]);
+      
+      // Update cache status and flags
+      setUsingCachedData(false);
+      const status = await GameCacheService.getCacheStatus();
+      setCacheStatus(status);
     } catch (error) {
       console.error('Failed to load games:', error);
       setError('Failed to load games');
@@ -286,6 +342,9 @@ export default function Library() {
 
       setApiKeys(keys);
       
+      console.log('🔑 Loaded API keys:', Object.keys(keys));
+      console.log('🎮 Epic credentials available:', !!keys.epicCredentials);
+      
       // Load games if we have credentials
       if (Object.keys(keys).length > 0) {
         await loadGames(keys);
@@ -298,7 +357,31 @@ export default function Library() {
       setError('Failed to load API keys');
       setLoading(false);
     }
-  }, [loadGames]); // Depend on loadGames
+  }, [loadGames]);
+
+  // Refresh function to force reload from APIs
+  const refreshGames = useCallback(async () => {
+    if (isRefreshing) {
+      console.log('Already refreshing, skipping duplicate call');
+      return;
+    }
+    
+    try {
+      setIsRefreshing(true);
+      setLoadingMessage('Refreshing games from all platforms...');
+      console.log('🔄 Force refreshing games from APIs...');
+      
+      if (Object.keys(apiKeys).length > 0) {
+        await loadGames(apiKeys, true); // Force refresh
+      } else {
+        console.log('No API keys available for refresh');
+      }
+    } catch (error) {
+      console.error('Failed to refresh games:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [apiKeys, loadGames, isRefreshing]); // Depend on loadGames
 
   useEffect(() => {
     loadApiKeys();
@@ -383,14 +466,21 @@ export default function Library() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">Game Library</h1>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Game Library</h1>
+              {usingCachedData && (
+                <p className="text-sm text-gray-500 mt-1">
+                  📦 Showing cached data • Last updated: {Object.values(cacheStatus)[0]?.age || 'Unknown'}
+                </p>
+              )}
+            </div>
             <div className="flex gap-4">
               <Button 
                 variant="outline" 
-                onClick={() => loadGames(apiKeys)}
-                disabled={loading}
+                onClick={refreshGames}
+                disabled={loading || isRefreshing}
               >
-                {loading ? 'Refreshing...' : 'Refresh Games'}
+                {isRefreshing ? 'Refreshing...' : '🔄 Refresh Games'}
               </Button>
               <Button onClick={goToSettings}>
                 Settings
@@ -410,6 +500,7 @@ export default function Library() {
             {Object.entries(platformStats).map(([platform, count]) => {
               // Display "Xbox Console" instead of "Xbox" for better clarity
               const displayName = platform === 'Xbox' ? 'Xbox Console' : platform;
+              const cacheInfo = cacheStatus[platform.toLowerCase()];
               
               return (
                 <div key={platform} className="bg-white rounded-lg shadow p-4 text-center">
@@ -427,6 +518,11 @@ export default function Library() {
                   </div>
                   <div className="text-lg font-semibold">{count}</div>
                   <div className="text-xs text-gray-600">{displayName}</div>
+                  {cacheInfo && (
+                    <div className="text-xs text-gray-400 mt-1">
+                      📦 {cacheInfo.age}
+                    </div>
+                  )}
                 </div>
               );
             })}
