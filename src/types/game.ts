@@ -6,6 +6,8 @@ export interface Game {
     steam?: string;
     xbox?: string;
     gog?: string;
+    epic?: string;
+    amazon?: string;
   };
   images?: {
     header?: string;
@@ -17,6 +19,8 @@ export interface Game {
   playtime?: {
     steam?: number; // minutes
     xbox?: number;
+    epic?: number;
+    amazon?: number;
   };
   achievements?: {
     steam?: { total: number; unlocked: number };
@@ -25,7 +29,7 @@ export interface Game {
 }
 
 export interface Platform {
-  name: 'Steam' | 'Xbox' | 'GOG';
+  name: 'Steam' | 'Xbox' | 'GOG' | 'Epic Games' | 'Amazon Games';
   owned: boolean;
   installed?: boolean;
   lastPlayed?: string;
@@ -76,9 +80,44 @@ export interface GOGGame {
   rating?: number;
 }
 
+export interface EpicGame {
+  catalogItemId: string;
+  title: string;
+  description?: string;
+  developer?: string;
+  publisher?: string;
+  keyImages?: Array<{
+    type: string;
+    url: string;
+  }>;
+  categories?: Array<{
+    path: string;
+  }>;
+  releaseDate?: string;
+  lastModifiedDate?: string;
+}
+
+export interface AmazonGame {
+  id: string;
+  title: string;
+  description?: string;
+  developer?: string;
+  publisher?: string;
+  images?: Array<{
+    type: string;
+    url: string;
+  }>;
+  releaseDate?: string;
+  lastPlayed?: string;
+  playtime?: number;
+  installed?: boolean;
+}
+
 export interface GameLibrary {
   steam: Game[];
   xbox: Game[];
   gog: Game[];
+  epic: Game[];
+  amazon: Game[];
   unified: Game[];
 }

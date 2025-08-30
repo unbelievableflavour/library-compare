@@ -4,6 +4,8 @@ import { config } from 'dotenv';
 import { GOGElectronAPI } from './gog-api';
 import { SteamElectronAPI } from './steam-api';
 import { XboxElectronAPI } from './xbox-api';
+import { EpicElectronAPI } from './epic-api';
+import { AmazonElectronAPI } from './amazon-api';
 import { IconCache } from './icon-cache';
 import Store from 'electron-store';
 
@@ -14,6 +16,8 @@ config({ path: join(__dirname, '../../.env.local') });
 const gogAPI = new GOGElectronAPI();
 const steamAPI = new SteamElectronAPI();
 const xboxAPI = new XboxElectronAPI();
+const epicAPI = new EpicElectronAPI();
+const amazonAPI = new AmazonElectronAPI();
 const iconCache = new IconCache();
 
 // Persistent storage
@@ -109,6 +113,34 @@ ipcMain.handle('xbox:authenticate', async () => {
 
 ipcMain.handle('xbox:getGames', async (event, tokens: any) => {
   return await xboxAPI.getOwnedGames(tokens);
+});
+
+// Epic Games API
+ipcMain.handle('epic:authenticate', async () => {
+  return await epicAPI.authenticate();
+});
+
+ipcMain.handle('epic:submitAuthCode', async (event, code: string) => {
+  epicAPI.submitAuthCode(code);
+  return { success: true };
+});
+
+ipcMain.handle('epic:cancelAuth', async () => {
+  epicAPI.cancelAuth();
+  return { success: true };
+});
+
+ipcMain.handle('epic:getGames', async (event, tokens: any) => {
+  return await epicAPI.getOwnedGames(tokens);
+});
+
+// Amazon Games API
+ipcMain.handle('amazon:authenticate', async () => {
+  return await amazonAPI.authenticate();
+});
+
+ipcMain.handle('amazon:getGames', async (event, tokens: any) => {
+  return await amazonAPI.getOwnedGames(tokens);
 });
 
 // File operations

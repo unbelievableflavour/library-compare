@@ -3,6 +3,7 @@ import { Button } from '../components/ui/button';
 import { GameTable } from '../components/GameTable';
 import { GameLibraryManager } from '../lib/gameLibrary';
 import { Game } from '../../types/game';
+import { getPlatformIcon } from '../components/PlatformIcons';
 
 interface GOGCredentials {
   access_token: string;
@@ -19,6 +20,8 @@ interface ApiKeys {
   steamId?: string;
   xboxCredentials?: any;
   gogCredentials?: GOGCredentials;
+  epicCredentials?: any;
+  amazonCredentials?: any;
 }
 
 // Remove the local Game interface since we're importing it from types
@@ -96,12 +99,16 @@ export default function Library() {
       const storedSteamId = await window.electronAPI.store.get('steamId');
       const storedXboxCredentials = await window.electronAPI.store.get('xboxCredentials');
       const storedGogCredentials = await window.electronAPI.store.get('gogCredentials');
+      const storedEpicCredentials = await window.electronAPI.store.get('epicCredentials');
+      const storedAmazonCredentials = await window.electronAPI.store.get('amazonCredentials');
 
       const keys: ApiKeys = {};
       if (storedSteamApiKey) keys.steamApiKey = storedSteamApiKey;
       if (storedSteamId) keys.steamId = storedSteamId;
       if (storedXboxCredentials) keys.xboxCredentials = storedXboxCredentials;
       if (storedGogCredentials) keys.gogCredentials = storedGogCredentials;
+      if (storedEpicCredentials) keys.epicCredentials = storedEpicCredentials;
+      if (storedAmazonCredentials) keys.amazonCredentials = storedAmazonCredentials;
 
       setApiKeys(keys);
       
@@ -132,6 +139,8 @@ export default function Library() {
       let steamGames: any[] = [];
       let xboxGames: any[] = [];
       let gogGames: any[] = [];
+      let epicGames: any[] = [];
+      let amazonGames: any[] = [];
 
       // Load GOG games
       if (keys.gogCredentials) {
@@ -219,8 +228,80 @@ export default function Library() {
         }
       }
 
+      // Load Epic Games
+      if (keys.epicCredentials) {
+        try {
+          console.log('Loading Epic games...');
+          const rawEpicGames = await window.electronAPI.epic.getGames(keys.epicCredentials);
+          console.log('Epic games loaded:', rawEpicGames?.length || 0);
+          
+          if (rawEpicGames && Array.isArray(rawEpicGames)) {
+            epicGames = rawEpicGames.map((game: any) => {
+              let title = game.title || game.name || 'Unknown Game';
+              if (typeof title === 'object' && title !== null) {
+                title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
+              }
+              
+              return {
+                ...game,
+                name: title,
+                title: title
+              };
+            });
+          }
+        } catch (error) {
+          console.error('Failed to load Epic games:', error);
+          // Check if it's an authentication error
+          if (error.message && error.message.includes('authentication failed')) {
+            console.warn('Epic authentication expired - clearing stored credentials');
+            await window.electronAPI.store.delete('epicCredentials');
+            setApiKeys(prev => {
+              const { epicCredentials, ...rest } = prev;
+              return rest;
+            });
+            setAuthWarnings(prev => [...prev, 'Epic Games authentication expired. Please reconnect your Epic account in settings.']);
+          }
+        }
+      }
+
+      // Load Amazon Games
+      if (keys.amazonCredentials) {
+        try {
+          console.log('Loading Amazon games...');
+          const rawAmazonGames = await window.electronAPI.amazon.getGames(keys.amazonCredentials);
+          console.log('Amazon games loaded:', rawAmazonGames?.length || 0);
+          
+          if (rawAmazonGames && Array.isArray(rawAmazonGames)) {
+            amazonGames = rawAmazonGames.map((game: any) => {
+              let title = game.title || game.name || 'Unknown Game';
+              if (typeof title === 'object' && title !== null) {
+                title = title['en-US'] || title['en'] || title['*'] || Object.values(title)[0] || 'Unknown Game';
+              }
+              
+              return {
+                ...game,
+                name: title,
+                title: title
+              };
+            });
+          }
+        } catch (error) {
+          console.error('Failed to load Amazon games:', error);
+          // Check if it's an authentication error
+          if (error.message && error.message.includes('authentication failed')) {
+            console.warn('Amazon authentication expired - clearing stored credentials');
+            await window.electronAPI.store.delete('amazonCredentials');
+            setApiKeys(prev => {
+              const { amazonCredentials, ...rest } = prev;
+              return rest;
+            });
+            setAuthWarnings(prev => [...prev, 'Amazon Games authentication expired. Please reconnect your Amazon account in settings.']);
+          }
+        }
+      }
+
       // Merge games using GameLibraryManager
-      const mergedGames = GameLibraryManager.mergeGames(steamGames, xboxGames, gogGames);
+      const mergedGames = GameLibraryManager.mergeGames(steamGames, xboxGames, gogGames, epicGames, amazonGames);
       setGames(mergedGames);
     } catch (error) {
       console.error('Failed to load games:', error);
@@ -338,17 +419,14 @@ export default function Library() {
                   <p className="text-gray-600">{count} games</p>
                 </div>
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  platform === 'Steam' ? 'bg-blue-100' :
-                  platform === 'GOG' ? 'bg-purple-100' :
-                  platform === 'Xbox' ? 'bg-green-100' : 'bg-gray-100'
+                  platform === 'Steam' ? 'bg-blue-100 text-blue-600' :
+                  platform === 'GOG' ? 'bg-purple-100 text-purple-600' :
+                  platform === 'Xbox' ? 'bg-green-100 text-green-600' :
+                  platform === 'Epic Games' ? 'bg-orange-100 text-orange-600' :
+                  platform === 'Amazon Games' ? 'bg-yellow-100 text-yellow-600' : 
+                  'bg-gray-100 text-gray-600'
                 }`}>
-                  <span className={`text-xl font-bold ${
-                    platform === 'Steam' ? 'text-blue-600' :
-                    platform === 'GOG' ? 'text-purple-600' :
-                    platform === 'Xbox' ? 'text-green-600' : 'text-gray-600'
-                  }`}>
-                    {platform.charAt(0)}
-                  </span>
+                  {getPlatformIcon(platform, 'w-6 h-6')}
                 </div>
               </div>
             </div>

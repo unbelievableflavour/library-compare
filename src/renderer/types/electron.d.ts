@@ -17,6 +17,16 @@ export interface ElectronAPI {
     authenticate: () => Promise<any>;
     getGames: (tokens: any) => Promise<any[]>;
   };
+  epic: {
+    authenticate: () => Promise<any>;
+    submitAuthCode: (code: string) => Promise<{ success: boolean }>;
+    cancelAuth: () => Promise<{ success: boolean }>;
+    getGames: (tokens: any) => Promise<any[]>;
+  };
+  amazon: {
+    authenticate: () => Promise<any>;
+    getGames: (tokens: any) => Promise<any[]>;
+  };
   file: {
     showOpenDialog: () => Promise<any>;
     showSaveDialog: (defaultPath: string) => Promise<any>;

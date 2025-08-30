@@ -9,6 +9,10 @@ export class GameLibraryManager {
         return 'text-green-600 bg-green-100';
       case 'GOG':
         return 'text-purple-600 bg-purple-100';
+      case 'Epic Games':
+        return 'text-orange-600 bg-orange-100';
+      case 'Amazon Games':
+        return 'text-yellow-600 bg-yellow-100';
       default:
         return 'text-gray-600 bg-gray-100';
     }
@@ -36,24 +40,36 @@ export class GameLibraryManager {
     return `${days}d`;
   }
 
-  static mergeGames(steamGames: any[], xboxGames: any[], gogGames: any[]): Game[] {
+  static mergeGames(steamGames: any[], xboxGames: any[], gogGames: any[], epicGames: any[] = [], amazonGames: any[] = []): Game[] {
     const gameMap = new Map<string, Game>();
 
     // Helper function to normalize game names for matching
     const normalizeGameName = (name: string): string => {
       return name
+        .replace(/ - Amazon Prime$/i, '') // Remove " - Amazon Prime" suffix (case insensitive)
+        .replace(/ - Prime Gaming$/i, '') // Remove " - Prime Gaming" suffix (case insensitive)
         .toLowerCase()
         .replace(/[^\w\s]/g, '') // Remove special characters
         .replace(/\s+/g, ' ') // Normalize whitespace
         .trim();
     };
 
+    // Helper function to clean display titles
+    const cleanDisplayTitle = (name: string): string => {
+      return name
+        .replace(/ - Amazon Prime$/i, '') // Remove " - Amazon Prime" suffix
+        .replace(/ - Prime Gaming$/i, '') // Remove " - Prime Gaming" suffix
+        .trim();
+    };
+
     // Process Steam games
     steamGames.forEach((steamGame) => {
-      const normalizedName = normalizeGameName(steamGame.name || steamGame.title);
+      const originalName = steamGame.name || steamGame.title;
+      const normalizedName = normalizeGameName(originalName);
+      const cleanName = cleanDisplayTitle(originalName);
       const game: Game = {
         id: `steam-${steamGame.appid || steamGame.id}`,
-        name: steamGame.name || steamGame.title,
+        name: cleanName,
         platforms: [{
           name: 'Steam',
           owned: true,
@@ -74,7 +90,9 @@ export class GameLibraryManager {
 
     // Process Xbox games
     xboxGames.forEach((xboxGame) => {
-      const normalizedName = normalizeGameName(xboxGame.name || xboxGame.title);
+      const originalName = xboxGame.name || xboxGame.title;
+      const normalizedName = normalizeGameName(originalName);
+      const cleanName = cleanDisplayTitle(originalName);
       const existingGame = gameMap.get(normalizedName);
 
       if (existingGame) {
@@ -90,7 +108,7 @@ export class GameLibraryManager {
         // Create new game
         const game: Game = {
           id: `xbox-${xboxGame.titleId || xboxGame.id}`,
-          name: xboxGame.name || xboxGame.title,
+          name: cleanName,
           platforms: [{
             name: 'Xbox',
             owned: true
@@ -106,7 +124,9 @@ export class GameLibraryManager {
 
     // Process GOG games
     gogGames.forEach((gogGame) => {
-      const normalizedName = normalizeGameName(gogGame.name || gogGame.title);
+      const originalName = gogGame.name || gogGame.title;
+      const normalizedName = normalizeGameName(originalName);
+      const cleanName = cleanDisplayTitle(originalName);
       const existingGame = gameMap.get(normalizedName);
 
       if (existingGame) {
@@ -122,7 +142,7 @@ export class GameLibraryManager {
         // Create new game
         const game: Game = {
           id: `gog-${gogGame.id}`,
-          name: gogGame.name || gogGame.title,
+          name: cleanName,
           platforms: [{
             name: 'GOG',
             owned: true
@@ -131,6 +151,79 @@ export class GameLibraryManager {
             gog: String(gogGame.id)
           },
           genres: gogGame.genres
+        };
+        gameMap.set(normalizedName, game);
+      }
+    });
+
+    // Process Epic Games
+    epicGames.forEach((epicGame) => {
+      const originalName = epicGame.name || epicGame.title;
+      const normalizedName = normalizeGameName(originalName);
+      const cleanName = cleanDisplayTitle(originalName);
+      const existingGame = gameMap.get(normalizedName);
+
+      if (existingGame) {
+        // Merge with existing game
+        existingGame.platforms.push({
+          name: 'Epic Games',
+          owned: true
+        });
+        if (epicGame.catalogItemId) {
+          existingGame.appId = { ...existingGame.appId, epic: epicGame.catalogItemId };
+        }
+      } else {
+        // Create new game
+        const game: Game = {
+          id: `epic-${epicGame.catalogItemId || epicGame.id}`,
+          name: cleanName,
+          platforms: [{
+            name: 'Epic Games',
+            owned: true
+          }],
+          appId: {
+            epic: epicGame.catalogItemId || epicGame.id
+          },
+          genres: epicGame.categories?.map((cat: any) => cat.path) || epicGame.genres
+        };
+        gameMap.set(normalizedName, game);
+      }
+    });
+
+    // Process Amazon Games
+    amazonGames.forEach((amazonGame) => {
+      const originalName = amazonGame.name || amazonGame.title;
+      const normalizedName = normalizeGameName(originalName);
+      const cleanName = cleanDisplayTitle(originalName);
+      const existingGame = gameMap.get(normalizedName);
+
+      if (existingGame) {
+        // Merge with existing game
+        existingGame.platforms.push({
+          name: 'Amazon Games',
+          owned: true,
+          playtime: amazonGame.playtime
+        });
+        if (amazonGame.id) {
+          existingGame.appId = { ...existingGame.appId, amazon: amazonGame.id };
+        }
+        if (amazonGame.playtime) {
+          existingGame.playtime = { ...existingGame.playtime, amazon: amazonGame.playtime };
+        }
+      } else {
+        // Create new game
+        const game: Game = {
+          id: `amazon-${amazonGame.id}`,
+          name: cleanName,
+          platforms: [{
+            name: 'Amazon Games',
+            owned: true,
+            playtime: amazonGame.playtime
+          }],
+          appId: {
+            amazon: amazonGame.id
+          },
+          playtime: amazonGame.playtime ? { amazon: amazonGame.playtime } : undefined
         };
         gameMap.set(normalizedName, game);
       }

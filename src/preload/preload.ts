@@ -31,6 +31,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getGames: (tokens: any) => ipcRenderer.invoke('xbox:getGames', tokens),
   },
 
+  // Epic Games API
+  epic: {
+    authenticate: () => ipcRenderer.invoke('epic:authenticate'),
+    submitAuthCode: (code: string) => ipcRenderer.invoke('epic:submitAuthCode', code),
+    cancelAuth: () => ipcRenderer.invoke('epic:cancelAuth'),
+    getGames: (tokens: any) => ipcRenderer.invoke('epic:getGames', tokens),
+  },
+
+  // Amazon Games API
+  amazon: {
+    authenticate: () => ipcRenderer.invoke('amazon:authenticate'),
+    getGames: (tokens: any) => ipcRenderer.invoke('amazon:getGames', tokens),
+  },
+
   // File operations
   file: {
     showOpenDialog: () => ipcRenderer.invoke('file:showOpenDialog'),

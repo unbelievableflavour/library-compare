@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { getPlatformIcon } from './PlatformIcons';
 
 interface GOGCredentials {
   access_token: string;
@@ -17,6 +18,8 @@ interface ApiKeys {
   steamId?: string;
   xboxCredentials?: any;
   gogCredentials?: GOGCredentials;
+  epicCredentials?: any;
+  amazonCredentials?: any;
 }
 
 interface ApiKeySetupProps {
@@ -28,6 +31,8 @@ interface ValidationErrors {
   steam?: string;
   xbox?: string;
   gog?: string;
+  epic?: string;
+  amazon?: string;
 }
 
 export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
@@ -36,6 +41,10 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
   const [hasStoredKeys, setHasStoredKeys] = useState(false);
   const [gogAuthenticating, setGogAuthenticating] = useState(false);
   const [xboxAuthenticating, setXboxAuthenticating] = useState(false);
+  const [epicAuthenticating, setEpicAuthenticating] = useState(false);
+  const [epicAuthCode, setEpicAuthCode] = useState('');
+  const [showEpicCodeInput, setShowEpicCodeInput] = useState(false);
+  const [amazonAuthenticating, setAmazonAuthenticating] = useState(false);
 
   // Load stored keys on component mount
   useEffect(() => {
@@ -48,6 +57,8 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
       const storedSteamId = await window.electronAPI.store.get('steamId');
       const storedXboxCredentials = await window.electronAPI.store.get('xboxCredentials');
       const storedGogCredentials = await window.electronAPI.store.get('gogCredentials');
+      const storedEpicCredentials = await window.electronAPI.store.get('epicCredentials');
+      const storedAmazonCredentials = await window.electronAPI.store.get('amazonCredentials');
 
       const keys: ApiKeys = {};
       let hasKeys = false;
@@ -66,6 +77,14 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
       }
       if (storedGogCredentials) {
         keys.gogCredentials = storedGogCredentials;
+        hasKeys = true;
+      }
+      if (storedEpicCredentials) {
+        keys.epicCredentials = storedEpicCredentials;
+        hasKeys = true;
+      }
+      if (storedAmazonCredentials) {
+        keys.amazonCredentials = storedAmazonCredentials;
         hasKeys = true;
       }
 
@@ -138,11 +157,144 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
     }
   };
 
+  const handleEpicAuth = async () => {
+    setValidationErrors(prev => ({ ...prev, epic: undefined }));
+    
+    // Show the code input immediately and start the auth process
+    setShowEpicCodeInput(true);
+    
+    try {
+      // Start the authentication process (opens browser)
+      // This will open the browser but not wait for completion
+      window.electronAPI.epic.authenticate().catch(error => {
+        console.error('Epic authentication error:', error);
+        if (!error.message?.includes('cancelled')) {
+          setValidationErrors(prev => ({ 
+            ...prev, 
+            epic: error instanceof Error ? error.message : 'Authentication failed' 
+          }));
+        }
+        setShowEpicCodeInput(false);
+      });
+      
+    } catch (error) {
+      console.error('Epic authentication start error:', error);
+      setValidationErrors(prev => ({ 
+        ...prev, 
+        epic: error instanceof Error ? error.message : 'Failed to start authentication' 
+      }));
+      setShowEpicCodeInput(false);
+    }
+  };
+
+  const handleEpicCodeSubmit = async () => {
+    if (!epicAuthCode.trim()) {
+      setValidationErrors(prev => ({ 
+        ...prev, 
+        epic: 'Please enter the authorization code' 
+      }));
+      return;
+    }
+
+    setEpicAuthenticating(true);
+    setValidationErrors(prev => ({ ...prev, epic: undefined }));
+
+    try {
+      // Submit the authorization code
+      await window.electronAPI.epic.submitAuthCode(epicAuthCode.trim());
+      
+      // Wait a moment for the authentication to complete
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Create mock credentials (legendary handles the actual auth)
+      const credentials = {
+        accessToken: 'legendary-managed',
+        refreshToken: 'legendary-managed',
+        expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
+        accountId: 'legendary-managed',
+        displayName: 'Epic Games User'
+      };
+      
+      // Store and set the credentials
+      await window.electronAPI.store.set('epicCredentials', credentials);
+      setApiKeys(prev => ({
+        ...prev,
+        epicCredentials: credentials
+      }));
+      setHasStoredKeys(true);
+      setShowEpicCodeInput(false);
+      setEpicAuthCode('');
+      
+    } catch (error) {
+      console.error('Epic code submission error:', error);
+      setValidationErrors(prev => ({ 
+        ...prev, 
+        epic: error instanceof Error ? error.message : 'Invalid authorization code' 
+      }));
+    } finally {
+      setEpicAuthenticating(false);
+    }
+  };
+
+  const handleEpicCancel = async () => {
+    try {
+      await window.electronAPI.epic.cancelAuth();
+    } catch (error) {
+      console.error('Epic cancel error:', error);
+    }
+    setEpicAuthenticating(false);
+    setShowEpicCodeInput(false);
+    setEpicAuthCode('');
+    setValidationErrors(prev => ({ ...prev, epic: undefined }));
+  };
+
+  const handleEpicDisconnect = async () => {
+    setApiKeys(prev => ({ ...prev, epicCredentials: undefined }));
+    await window.electronAPI.store.delete('epicCredentials');
+    
+    const hasOtherKeys = apiKeys.steamApiKey || apiKeys.steamId || apiKeys.gogCredentials || apiKeys.xboxCredentials || apiKeys.amazonCredentials;
+    setHasStoredKeys(hasOtherKeys);
+  };
+
+  const handleAmazonAuth = async () => {
+    setAmazonAuthenticating(true);
+    setValidationErrors(prev => ({ ...prev, amazon: undefined }));
+
+    try {
+      const credentials = await window.electronAPI.amazon.authenticate();
+      
+      setApiKeys(prev => ({
+        ...prev,
+        amazonCredentials: credentials
+      }));
+      
+      await window.electronAPI.store.set('amazonCredentials', credentials);
+      setHasStoredKeys(true);
+      
+    } catch (error) {
+      console.error('Amazon authentication error:', error);
+      setValidationErrors(prev => ({ 
+        ...prev, 
+        amazon: error instanceof Error ? error.message : 'Authentication failed' 
+      }));
+    } finally {
+      setAmazonAuthenticating(false);
+    }
+  };
+
+  const handleAmazonDisconnect = async () => {
+    setApiKeys(prev => ({ ...prev, amazonCredentials: undefined }));
+    await window.electronAPI.store.delete('amazonCredentials');
+    
+    const hasOtherKeys = apiKeys.steamApiKey || apiKeys.steamId || apiKeys.gogCredentials || apiKeys.xboxCredentials || apiKeys.epicCredentials;
+    setHasStoredKeys(hasOtherKeys);
+  };
+
   const handleXboxDisconnect = async () => {
     setApiKeys(prev => ({ ...prev, xboxCredentials: undefined }));
     await window.electronAPI.store.delete('xboxCredentials');
     
-    const hasOtherKeys = apiKeys.steamApiKey || apiKeys.steamId || apiKeys.gogCredentials;
+    const hasOtherKeys = apiKeys.steamApiKey || apiKeys.steamId || apiKeys.gogCredentials || apiKeys.epicCredentials || apiKeys.amazonCredentials;
     setHasStoredKeys(hasOtherKeys);
   };
 
@@ -197,8 +349,8 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
         {/* Steam Section */}
         <div className="space-y-4 p-4 border rounded-lg">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-500 rounded flex items-center justify-center">
-              <span className="text-white text-xs font-bold">S</span>
+            <div className="w-6 h-6 bg-blue-500 rounded flex items-center justify-center text-white">
+              {getPlatformIcon('Steam', 'h-4 w-4')}
             </div>
             <h3 className="text-lg font-semibold">Steam</h3>
             {apiKeys.steamApiKey && apiKeys.steamId && (
@@ -258,8 +410,8 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
         {/* Xbox Section */}
         <div className="space-y-4 p-4 border rounded-lg">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-green-500 rounded flex items-center justify-center">
-              <span className="text-white text-xs font-bold">X</span>
+            <div className="w-6 h-6 bg-green-500 rounded flex items-center justify-center text-white">
+              {getPlatformIcon('Xbox', 'h-4 w-4')}
             </div>
             <h3 className="text-lg font-semibold">Xbox</h3>
             {apiKeys.xboxCredentials && (
@@ -307,11 +459,158 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
           )}
         </div>
 
+        {/* Epic Games Section */}
+        <div className="space-y-4 p-4 border rounded-lg">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-orange-500 rounded flex items-center justify-center text-white">
+              {getPlatformIcon('Epic Games', 'h-4 w-4')}
+            </div>
+            <h3 className="text-lg font-semibold">Epic Games Store</h3>
+            {apiKeys.epicCredentials && (
+              <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Connected</span>
+            )}
+          </div>
+          
+          {validationErrors.epic && (
+            <div className="text-sm text-red-600 bg-red-50 p-2 rounded">
+              {validationErrors.epic}
+            </div>
+          )}
+          
+          {!apiKeys.epicCredentials ? (
+            <div className="space-y-3">
+              {!showEpicCodeInput ? (
+                <>
+                  <div className="text-sm text-muted-foreground">
+                    Connect your Epic Games account using the same method as Heroic Games Launcher.
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleEpicAuth}
+                    disabled={epicAuthenticating}
+                    className="w-full"
+                  >
+                    {epicAuthenticating ? 'Connecting...' : 'Connect Epic Games Account'}
+                  </Button>
+                  <div className="text-xs text-muted-foreground">
+                    This will open legendary.gl/epiclogin in your browser. You'll need to log in and copy the authorization code from the JSON response.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm text-muted-foreground">
+                    <p className="mb-2">Follow these steps to complete Epic Games authentication:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-xs">
+                      <li>Log in to your Epic Games account in the browser window that opened (legendary.gl/epiclogin)</li>
+                      <li>After logging in, you'll see a JSON response with an "authorizationCode" field</li>
+                      <li>Copy the value from the "authorizationCode" field (without quotes) and paste it below</li>
+                      <li>Example: if you see "authorizationCode":"abc123", copy just "abc123"</li>
+                    </ol>
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      type="text"
+                      placeholder="Paste the authorizationCode value here..."
+                      value={epicAuthCode}
+                      onChange={(e) => setEpicAuthCode(e.target.value)}
+                      className="w-full"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        onClick={handleEpicCodeSubmit}
+                        disabled={!epicAuthCode.trim() || epicAuthenticating}
+                        className="flex-1"
+                      >
+                        {epicAuthenticating ? 'Authenticating...' : 'Submit Code'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleEpicCancel}
+                        className="flex-1"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-sm text-green-700 bg-green-50 p-2 rounded">
+                ✓ Epic Games account connected successfully
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleEpicDisconnect}
+                className="w-full"
+              >
+                Disconnect Epic Games Account
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Amazon Games Section */}
+        <div className="space-y-4 p-4 border rounded-lg">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-yellow-500 rounded flex items-center justify-center text-white">
+              {getPlatformIcon('Amazon Games', 'h-4 w-4')}
+            </div>
+            <h3 className="text-lg font-semibold">Amazon Games</h3>
+            {apiKeys.amazonCredentials && (
+              <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Connected</span>
+            )}
+          </div>
+          
+          {validationErrors.amazon && (
+            <div className="text-sm text-red-600 bg-red-50 p-2 rounded">
+              {validationErrors.amazon}
+            </div>
+          )}
+          
+          {!apiKeys.amazonCredentials ? (
+            <div className="space-y-3">
+              <div className="text-sm text-muted-foreground">
+                Connect your Amazon Games account using OAuth2 authentication to import your game library.
+              </div>
+              <Button
+                type="button"
+                onClick={handleAmazonAuth}
+                disabled={amazonAuthenticating}
+                className="w-full"
+              >
+                {amazonAuthenticating ? 'Connecting...' : 'Connect Amazon Games Account'}
+              </Button>
+              <div className="text-xs text-muted-foreground">
+                This will open Amazon's authentication page in a new window. You'll need to log in and authorize access to your library.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-sm text-green-700 bg-green-50 p-2 rounded">
+                ✓ Amazon Games account connected successfully
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAmazonDisconnect}
+                className="w-full"
+              >
+                Disconnect Amazon Games Account
+              </Button>
+            </div>
+          )}
+        </div>
+
         {/* GOG Section */}
         <div className="space-y-4 p-4 border rounded-lg">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-purple-500 rounded flex items-center justify-center">
-              <span className="text-white text-xs font-bold">G</span>
+            <div className="w-6 h-6 bg-purple-500 rounded flex items-center justify-center text-white">
+              {getPlatformIcon('GOG', 'h-4 w-4')}
             </div>
             <h3 className="text-lg font-semibold">GOG</h3>
             {apiKeys.gogCredentials && (
