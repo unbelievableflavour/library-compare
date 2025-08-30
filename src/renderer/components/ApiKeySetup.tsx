@@ -166,7 +166,10 @@ export function ApiKeySetup({ onSubmit, loading = false }: ApiKeySetupProps) {
       const credentials = await window.electronAPI.epic.authenticate();
       
       if (credentials) {
+        // Store in Electron store
+        await window.electronAPI.store.set('epicCredentials', credentials);
         setApiKeys(prev => ({ ...prev, epicCredentials: credentials }));
+        setHasStoredKeys(true);
         console.log('Epic Games authentication successful');
       } else {
         throw new Error('Epic Games authentication failed');
