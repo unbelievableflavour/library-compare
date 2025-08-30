@@ -65,6 +65,7 @@ export default function Library() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Loading your game library...');
   const [error, setError] = useState<string | null>(null);
   const [authWarnings, setAuthWarnings] = useState<string[]>([]);
   
@@ -111,6 +112,7 @@ export default function Library() {
       // Create parallel promises for all platform API calls
       const startTime = performance.now();
       console.log('🚀 Starting parallel game loading from all platforms...');
+      setLoadingMessage('Loading games from all platforms...');
       
       const platformPromises = [
         // GOG Games Promise
@@ -251,6 +253,8 @@ export default function Library() {
       const totalTime = performance.now() - startTime;
       console.log(`🎉 All platforms loaded in ${totalTime.toFixed(0)}ms - merging games...`);
 
+      setLoadingMessage('Merging games from all platforms...');
+      
       // Merge games using GameLibraryManager
       const mergedGames = GameLibraryManager.mergeGames(steamGames, xboxGames, gogGames, epicGames, amazonGames);
       setGames(mergedGames);
@@ -285,11 +289,13 @@ export default function Library() {
       // Load games if we have credentials
       if (Object.keys(keys).length > 0) {
         await loadGames(keys);
+      } else {
+        // No credentials found, stop loading
+        setLoading(false);
       }
     } catch (error) {
       console.error('Failed to load API keys:', error);
       setError('Failed to load API keys');
-    } finally {
       setLoading(false);
     }
   }, [loadGames]); // Depend on loadGames
@@ -307,7 +313,7 @@ export default function Library() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your game library...</p>
+          <p className="text-gray-600">{loadingMessage}</p>
         </div>
       </div>
     );
