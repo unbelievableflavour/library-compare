@@ -57,14 +57,39 @@ export class AmazonElectronAPI {
 
   private async runNileCommand(args: string[]): Promise<{ stdout: string; stderr: string }> {
     const nileBinary = this.getNileBinaryPath();
+    const configPath = this.getConfigPath();
     const command = `"${nileBinary}" ${args.join(' ')}`;
     
+    console.log('Executing nile command:', command);
+    console.log('Using config path:', configPath);
+    
     try {
-      const { stdout, stderr } = await execAsync(command);
+      // Set NILE_CONFIG_PATH environment variable like Heroic does
+      const env = {
+        ...process.env,
+        NILE_CONFIG_PATH: configPath
+      };
+      
+      const { stdout, stderr } = await execAsync(command, { 
+        timeout: 30000, // 30 second timeout
+        maxBuffer: 1024 * 1024 * 10, // 10MB buffer for large outputs
+        env: env
+      });
+      
+      console.log('Nile command completed successfully');
       return { stdout: stdout.trim(), stderr: stderr.trim() };
     } catch (error: any) {
       console.error('Nile command failed:', error);
-      throw new Error(`Nile command failed: ${error.message}`);
+      console.error('Command that failed:', command);
+      
+      // Check if it's a timeout or other specific error
+      if (error.code === 'ENOENT') {
+        throw new Error(`Nile binary not found at: ${nileBinary}`);
+      } else if (error.signal === 'SIGTERM') {
+        throw new Error('Nile command timed out');
+      } else {
+        throw new Error(`Nile command failed: ${error.message}`);
+      }
     }
   }
 
@@ -351,40 +376,74 @@ export class AmazonElectronAPI {
     try {
       this.tokens = tokens;
       
-      console.log('Getting Amazon Prime Gaming library using nile...');
+      console.log('Getting Amazon Prime Gaming library using nile (Heroic approach)...');
       
       try {
-        // Try to sync library with nile
+        // First check if user is logged in to nile
+        console.log('Checking nile authentication status...');
+        try {
+          const { stdout: authStatus } = await this.runNileCommand(['auth', '--status']);
+          console.log('Nile auth status:', authStatus);
+        } catch (authError) {
+          console.warn('Could not check nile auth status:', authError);
+          throw new Error('User not logged in to nile. Please authenticate first.');
+        }
+        
+        // First sync the library to create/update library.json (like Heroic does)
         console.log('Syncing Amazon library with nile...');
         await this.runNileCommand(['library', 'sync']);
         
-        // Get the library data
-        console.log('Fetching library data from nile...');
-        const { stdout } = await this.runNileCommand(['library', 'list', '--json']);
+        // Now read the library.json file that nile created (Heroic's approach)
+        const libraryPath = this.getLibraryJsonPath();
+        console.log('Reading library from:', libraryPath);
         
-        if (!stdout) {
-          throw new Error('No library data received from nile');
+        const fs = require('fs');
+        if (!fs.existsSync(libraryPath)) {
+          console.log('Library JSON file not found, trying to sync again...');
+          // Try to sync again if file doesn't exist
+          await this.runNileCommand(['library', 'sync']);
+          
+          if (!fs.existsSync(libraryPath)) {
+            throw new Error('Library JSON file still not found after sync');
+          }
         }
         
-        const libraryData = JSON.parse(stdout);
-        console.log(`Nile returned ${libraryData.length} games`);
+        // Read and parse the JSON file (like Heroic does)
+        const libraryContent = fs.readFileSync(libraryPath, 'utf-8');
+        const libraryData = JSON.parse(libraryContent);
         
-        // Convert nile format to our format
-        const amazonGames: AmazonGame[] = libraryData.map((game: any) => ({
-          id: game.product?.id || game.id,
-          title: game.product?.title || game.title || 'Unknown Game',
-          description: game.product?.productDetail?.details?.shortDescription || '',
-          developer: game.product?.productDetail?.details?.developer || '',
-          publisher: game.product?.productDetail?.details?.publisher || '',
-          images: game.product?.productDetail?.iconUrl ? [{
-            type: 'ICON',
-            url: game.product.productDetail.iconUrl
-          }] : [],
-          releaseDate: game.product?.productDetail?.details?.releaseDate || '',
-          installed: game.is_installed || false
-        }));
+        console.log(`Found ${libraryData.length} games in library.json`);
         
-        console.log(`Successfully converted ${amazonGames.length} Amazon games`);
+        // Convert to our format using Heroic's structure
+        const amazonGames: AmazonGame[] = libraryData.map((gameData: any) => {
+          const { product } = gameData;
+          const { title, productDetail } = product;
+          const {
+            details: {
+              shortDescription = '',
+              developer = '',
+              genres = [],
+              releaseDate = ''
+            } = {},
+            iconUrl = ''
+          } = productDetail || {};
+
+          return {
+            id: product.id,
+            title: title || '???',
+            description: shortDescription,
+            developer: developer,
+            publisher: 'Amazon Games',
+            images: iconUrl ? [{
+              type: 'LOGO' as const,
+              url: iconUrl
+            }] : [],
+            releaseDate: releaseDate,
+            installed: false
+          };
+        });
+        
+        console.log(`Successfully converted ${amazonGames.length} Amazon games using Heroic approach`);
         return amazonGames;
         
       } catch (nileError) {
@@ -441,6 +500,100 @@ export class AmazonElectronAPI {
       console.error('Error fetching Amazon games:', error);
       return [];
     }
+  }
+
+  private parseNileLibraryOutput(output: string): AmazonGame[] {
+    const games: AmazonGame[] = [];
+    
+    // First, handle line wrapping by rejoining split lines
+    const rawLines = output.split('\n');
+    const processedLines: string[] = [];
+    let currentLine = '';
+    
+    for (const line of rawLines) {
+      const trimmedLine = line.trim();
+      
+      // Skip empty lines and total line
+      if (!trimmedLine || trimmedLine.includes('*** TOTAL')) {
+        continue;
+      }
+      
+      // If line starts with a game name (contains " ID: "), it's a new game
+      if (trimmedLine.includes(' ID: ')) {
+        // Save previous line if it exists
+        if (currentLine) {
+          processedLines.push(currentLine);
+        }
+        currentLine = trimmedLine;
+      } else {
+        // This is a continuation line, append to current line
+        currentLine += ' ' + trimmedLine;
+      }
+    }
+    
+    // Don't forget the last line
+    if (currentLine) {
+      processedLines.push(currentLine);
+    }
+    
+    console.log(`Processing ${processedLines.length} games from nile output`);
+    
+    for (const line of processedLines) {
+      try {
+        // Parse nile output format: "Game Name ID: game-id GENRES: ['genre1', 'genre2']"
+        const match = line.match(/^(.+?)\s+ID:\s+([^\s]+)(?:\s+GENRES:\s*\[([^\]]*)\])?/);
+        
+        if (match) {
+          const [, title, id, genresStr] = match;
+          
+          // Parse genres if present
+          let genres: string[] = [];
+          if (genresStr) {
+            genres = genresStr.split(',').map(g => g.trim().replace(/['"]/g, ''));
+          }
+          
+          const game: AmazonGame = {
+            id: id.trim(),
+            title: title.trim(),
+            description: '',
+            developer: '',
+            publisher: 'Amazon Games',
+            images: [],
+            releaseDate: '',
+            installed: false
+          };
+          
+          games.push(game);
+          
+          // Log first few successful parses
+          if (games.length <= 5) {
+            console.log(`✅ Parsed game ${games.length}: "${title.trim()}" (ID: ${id.trim()})`);
+          }
+        } else {
+          console.log('❌ Could not parse line:', line.substring(0, 120));
+        }
+      } catch (error) {
+        console.error('Error parsing nile line:', line, error);
+      }
+    }
+    
+    console.log(`🎮 Successfully parsed ${games.length} Amazon games from nile output`);
+    return games;
+  }
+
+  private getConfigPath(): string {
+    const os = require('os');
+    const path = require('path');
+    
+    // Use the same path structure as Heroic Game Launcher
+    // This creates a nile config directory in the app's data folder
+    return path.join(os.homedir(), '.config', 'library-compare', 'nile_config');
+  }
+
+  private getLibraryJsonPath(): string {
+    const path = require('path');
+    // The library.json file is created inside a 'nile' subdirectory
+    return path.join(this.getConfigPath(), 'nile', 'library.json');
   }
 
   getTokens(): AmazonTokens | undefined {
